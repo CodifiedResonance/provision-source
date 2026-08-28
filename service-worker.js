@@ -1,4 +1,4 @@
-const CACHE = 'provision-source-live-v2.0.0';
+const CACHE = 'provision-source-live-v3.0.0';
 const APP_SHELL = [
   './',
   './index.html',

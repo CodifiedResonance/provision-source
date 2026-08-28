@@ -1,21 +1,21 @@
-# PROVISION SOURCE — Live Network build
+# PROVISION SOURCE — Live Network v3
 
-This package is wired to the Provision Network Supabase project.
+This build is wired to the Provision Network Supabase project.
+
+## Before deploying
+Run `20260828_provision_provenance_location.sql` once in the Supabase SQL Editor. It adds the source-profile/location RPC and public-safe provenance fields used by both PWAs.
 
 ## Deploy
 1. Upload every file in this folder to the GitHub Pages repository root for Provision Source.
-2. Commit to `main` and enable GitHub Pages from `main` / root.
-3. Copy the final deployed Source URL.
-4. In Supabase Authentication URL Configuration, add that exact Source URL to the redirect allow-list.
+2. Commit to `main` and keep GitHub Pages on `main` / root.
+3. Keep the deployed Source URL in the Supabase Auth redirect allow-list.
+4. Reload the installed PWA after Pages redeploys. The service-worker cache has been bumped.
 
-## Live flow
-- Email magic-link authentication.
-- First authenticated user can create a source through the database `create_source` RPC.
-- Existing source owners load their current network state.
-- `Publish changes` appends rows to `public.provision_event`; it never edits the ledger.
-- The database projection trigger updates `public.current_offer`.
-- Consumer Provision sees those changes through `current_offers` + Realtime.
-
-The Source UI currently publishes foods already present in the network ontology. The first seeded foods are Courgettes, Potatoes, Tomatoes, Eggs, Red snapper and Bread.
+## v3 changes
+- `Unit` is now `How is this counted?`.
+- Food-aware defaults: courgette/tomato/fish → each; potatoes → kg; eggs → dozen; bread → loaf, with sensible alternatives.
+- Evidence wording is now `Source declared`, not `Producer verified`.
+- Source setup can capture address/locality and automatically resolve a postcode to coordinates; an existing source with a postcode and missing coordinates is repaired on load.
+- Source publishes explicit provenance metadata (`source_direct`) so the consumer can say how the update reached the network without exposing the individual user identity.
 
 No service-role or secret key is included.
