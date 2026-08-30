@@ -1,21 +1,49 @@
 {
   "id": "./",
-  "name": "PROVISION SOURCE — Producer Interface",
+  "name": "PROVISION SOURCE \u2014 Network Source Surface",
   "short_name": "PROVISION SOURCE",
-  "description": "The producer face of the Provision Network. Tell the network what is true here today.",
+  "description": "The authenticated source surface of the Provision Network. Publish what is true here today, attach evidence, respond to claims and read local demand.",
   "lang": "en-GB",
   "dir": "ltr",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "display_override": ["window-controls-overlay", "standalone"],
-  "background_color": "#120f0b",
-  "theme_color": "#17120d",
-  "categories": ["food", "business", "productivity", "utilities"],
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
+  "background_color": "#050504",
+  "theme_color": "#050504",
+  "categories": [
+    "food",
+    "business",
+    "productivity",
+    "utilities"
+  ],
   "icons": [
-    {"src":"./icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
-    {"src":"./icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},
-    {"src":"./icon-1024.png","sizes":"1024x1024","type":"image/png","purpose":"any"},
-    {"src":"./icon-512-maskable.png","sizes":"512x512","type":"image/png","purpose":"maskable"}
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

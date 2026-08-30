@@ -1,21 +1,19 @@
-# PROVISION SOURCE — Live Network v3
+# PROVISION SOURCE — Live Network v4
 
-This build is wired to the Provision Network Supabase project.
+Authenticated source surface for the Provision Network.
 
-## Before deploying
-Run `20260828_provision_provenance_location.sql` once in the Supabase SQL Editor. It adds the source-profile/location RPC and public-safe provenance fields used by both PWAs.
+## This release
+- Provision Source visual identity separated from the consumer PWA.
+- Tap the PROVISION SOURCE identity / business name to edit the persistent Source profile.
+- Auth account email is displayed separately from business identity.
+- Owner/admin profile editing and pause/reactivate controls.
+- Owner/admin/editor publishing; viewer read-only behaviour.
+- Food-aware **How is this counted?** defaults.
+- Evidence photo/PDF upload to the private `provision-evidence` bucket with `upsert: false`.
+- Claims inbox with accept / decline / fulfil via Migration 04 RPCs.
+- Privacy-thresholded 3/5/10 km demand summaries.
+- Realtime updates for source, offers, claims and evidence.
 
-## Deploy
-1. Upload every file in this folder to the GitHub Pages repository root for Provision Source.
-2. Commit to `main` and keep GitHub Pages on `main` / root.
-3. Keep the deployed Source URL in the Supabase Auth redirect allow-list.
-4. Reload the installed PWA after Pages redeploys. The service-worker cache has been bumped.
+Database contract: `20260830_provision_network_expansion_04.sql` (already applied to Production).
 
-## v3 changes
-- `Unit` is now `How is this counted?`.
-- Food-aware defaults: courgette/tomato/fish → each; potatoes → kg; eggs → dozen; bread → loaf, with sensible alternatives.
-- Evidence wording is now `Source declared`, not `Producer verified`.
-- Source setup can capture address/locality and automatically resolve a postcode to coordinates; an existing source with a postcode and missing coordinates is repaired on load.
-- Source publishes explicit provenance metadata (`source_direct`) so the consumer can say how the update reached the network without exposing the individual user identity.
-
-No service-role or secret key is included.
+Deploy all files at repo root on GitHub Pages. The deployed URL must be present in Supabase Authentication redirect URLs for email magic-link sign-in.
