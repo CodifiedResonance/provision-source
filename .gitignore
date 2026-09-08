@@ -1,0 +1,7 @@
+node_modules/
+dist/
+release/
+.env*
+!.env.example
+staging/src/validators.cjs
+*.local.json
