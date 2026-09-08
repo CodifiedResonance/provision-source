@@ -1,0 +1,30 @@
+# Inactive review candidate. Install ONLY in the approved private operations repo.
+# Review this file and recovery-smoke.sh before setting RECOVERY_REVIEWED_SHA.
+name: Recovery runner capability smoke (no secrets)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: recovery-runner-smoke
+  cancel-in-progress: false
+jobs:
+  smoke:
+    if: >-
+      github.event.repository.private == true &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      github.sha == vars.RECOVERY_REVIEWED_SHA
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: recovery-smoke
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ vars.RECOVERY_REVIEWED_SHA }}
+          persist-credentials: false
+      - name: Measure disposable runner and database tools
+        env:
+          # Reviewed immutable image chosen by the backend agent. No floating tag.
+          RECOVERY_POSTGRES_IMAGE: ${{ vars.RECOVERY_POSTGRES_IMAGE }}
+        run: bash ops/recovery-smoke.sh
+      # No backup, upload, credential retrieval, external delivery or schedules.

@@ -1,3 +1,5 @@
+import {memberExport} from './member-data.js';
+import {profileForm,physicalDatesForm} from './member-forms.js';
 import {time,priceText,quantity,defaultUnit,emptyDates,UNITS,expired} from './domain.js';
 import {el,button,field,select,check,modal,closeModal,message,empty,facts} from './dom.js';
 export function resumeSourceDraft(draft,ctx){ctx.state.sourceId=draft.source;return edit(null,ctx,false,draft);}
@@ -18,15 +20,26 @@ export async function sourceScreen(root,ctx){
   root.append(button(p.name,()=>profileForm(p,ctx)),el('p',p.active?'Source active':'Source paused · your catalogue remains manageable'),el('p','Current role is checked by the server on every command. A role-discovery endpoint is still needed for complete viewer controls.',{class:'muted'}));
   toolbar.append(button('Add a new batch',()=>edit(null,ctx),'primary'),button('Export stock/history',()=>exportCatalogue(offers,p,ctx)),button('Print current stock',()=>printStock(offers,p)));
   const cards=el('div',null,{class:'cards'});root.append(cards);
+  function renderCards(){cards.replaceChildren();
   for(const o of offers){const c=el('article',null,{class:'card'}),saved=drafts.find(d=>d.id===o.lot_id),actions=el('div',null,{class:'actions'});
     c.append(el('p',o.classification.toUpperCase(),{class:'eyebrow'}),el('h2',o.food_name),el('p',`${o.physical_quantity??'Unknown'} ${o.unit} · ${priceText(o.price,o.unit)}`),el('p',expired(o,api.now())||o.visibility!=='public'||!o.source_active?'Not currently published—confirm, change or retire':`Declared ${time(o.availability_confirmed_at)}`),el('p',`Held ${o.held_quantity} · available ${o.claimable_quantity} ${o.unit}`));
     if(saved)c.append(el('p','Saved on this device · unpublished changes',{class:'badge'}));
     if(saved&&saved.baseRevision!==o.revision)c.append(el('p','Server revision changed. Review both versions before publishing.',{class:'error'}));
-    actions.append(button(saved?'Resume draft':'Change',()=>edit(o,ctx)),button('Same batch · reconfirm',()=>reconfirm(o,ctx)),button('New batch',()=>edit(o,ctx,true)),button('Sold out',()=>countZero(o,ctx)),button('Retire',()=>reason('Retire this offer',async r=>ctx.command('integrity_withdraw_v1',{source_id:sourceId,offer_id:o.id,expected_revision:o.revision,reason:r},sourceId))),button('Evidence',()=>evidenceForm(o,ctx)));c.append(actions);cards.append(c);
+    actions.append(button(saved?'Resume draft':'Change',()=>edit(o,ctx)),button('Same batch · reconfirm',()=>reconfirm(o,ctx)),button('New batch',()=>edit(o,ctx,true)),button('Sold out',()=>countZero(o,ctx)),button('Retire',()=>reason('Retire this offer',async r=>ctx.command('integrity_withdraw_v1',{source_id:sourceId,offer_id:o.id,expected_revision:o.revision,reason:r},sourceId))),button('Correct physical dates',()=>physicalDatesForm(o,ctx)),button('Evidence',()=>evidenceForm(o,ctx)));c.append(actions);cards.append(c);
   }
   for(const d of drafts.filter(d=>!offers.some(o=>o.lot_id===d.id))){const c=el('article',null,{class:'card'});c.append(el('h2',d.foodName||'Unpublished batch'),el('p','Saved on this device'),button('Resume draft',()=>edit(null,ctx,false,d)));cards.append(c);}
   if(!offers.length&&!drafts.length)cards.append(empty('No catalogue items on this page','Expired batches remain manageable when returned by the member catalogue.'));
-  if(response.data.next_cursor)root.append(el('p','More catalogue records exist. This first implementation displays 50; complete member pagination remains a release gate.'));
+  }
+  renderCards();
+  let cursor=response.data.next_cursor;const seen=new Set();
+  const more=button('Load more catalogue items',async()=>{
+    const r=await api.page('integrity_catalogue_v1',{source_id:sourceId},cursor);if(!ctx.guard(g)||!cards.isConnected)return;
+    if(r.data.next_cursor&&(seen.has(r.data.next_cursor)||r.data.next_cursor===cursor))throw Error('Catalogue pagination did not advance. Refresh before continuing.');
+    if(cursor)seen.add(cursor);cursor=r.data.next_cursor;
+    for(const item of r.data.items){const i=offers.findIndex(o=>o.id===item.id);if(i<0)offers.push(item);else offers[i]=item;}
+    await store.put('server',user,sourceId,'catalogue',{items:offers,serverTime:r.server_time,nextCursor:cursor});
+    if(!ctx.guard(g))return;renderCards();more.hidden=!cursor;
+  });more.hidden=!cursor;root.append(more);
   return ()=>{};
 }
 function dateField(label,value){const f=field(label,'','datetime-local');if(value){const d=new Date(value);f.input.value=new Date(+d-d.getTimezoneOffset()*60000).toISOString().slice(0,16);}return f;}
@@ -58,6 +71,7 @@ async function edit(offer,ctx,newBatch=false,resume=null){
     await save();await saving;if(saveFailed)throw Error('Device save failed. Publication was not started.');if(!ctx.guard(g))return;
     const f=draft.form;quantity(f.quantity,f.unit);if(!f.foodId||!f.listingExpiresAt)throw Error('Choose a food and declaration expiry.');if(Date.parse(f.listingExpiresAt)<=api.now())throw Error('Choose a future declaration expiry.');
     if(offer&&!newBatch&&draft.baseRevision!==offer.revision)throw Error('Resolve the revision conflict before publishing.');
+    if(offer&&!newBatch&&!Object.hasOwn(offer,'note'))throw Error('Updating this declaration awaits the revised backend contract so its existing note is preserved. Your draft remains saved.');
     const review=el('div');review.append(el('p',`${f.quantity} ${f.unit} ${draft.foodName} · ${priceText(f.price,f.unit)} · ${f.pressure}`),el('p','Confirm your physical count and collection window now. Any server revision conflict will preserve this draft.'),button('Confirm publication',async()=>{
       if(!ctx.guard(g))return;
       if(!draft.lotId){const result=await ctx.command('integrity_create_lot_v1',{source_id:source,food_id:f.foodId,unit:f.unit,physical_dates:f.dates},source,{operationId:draft.createId});if(!result)return;draft=await store.saveDraft(user,source,id,{...draft,lotId:result.lot_id,baseRevision:result.revision},draft.localVersion);}
@@ -69,8 +83,6 @@ async function edit(offer,ctx,newBatch=false,resume=null){
 function reconfirm(o,ctx){const box=el('div'),expiry=dateField('New declaration expiry (your local time)',null);box.append(el('p',`Reconfirm this same batch: ${o.physical_quantity} ${o.unit}. Harvest, landing and bake dates stay unchanged.`),expiry.label,button('Confirm unchanged stock',async()=>{const expires=iso(expiry.input.value);if(!expires)throw Error('Choose an expiry.');await ctx.command('integrity_reconfirm_v1',{source_id:o.source_id,offer_id:o.id,expected_revision:o.revision,listing_expires_at:expires},o.source_id);closeModal();},'primary'));modal('Same batch',box);}
 function countZero(o,ctx){reason('Count physical stock as zero',r=>ctx.command('integrity_reconcile_stock_v1',{source_id:o.source_id,offer_id:o.id,expected_revision:o.revision,counted_quantity:'0',count_observed_at:new Date(ctx.api.now()).toISOString(),reason:r},o.source_id));}
 function reason(title,action){const box=el('div'),f=field('Reason','','textarea');box.append(f.label,button('Confirm',async()=>{if(!f.input.value.trim())throw Error('Provide a reason.');await action(f.input.value);closeModal();},'primary'));modal(title,box);}
-function profileForm(p,ctx){const box=el('div'),fields={};for(const [key,name]of [['name','Business name'],['legal_name','Legal name'],['description','Description'],['public_email','Public email'],['public_phone','Public phone'],['contact_url','Website'],['address_line','Address'],['locality','Locality'],['postcode','Postcode'],['collection_notes','Collection instructions']]){fields[key]=field(name,p[key]||'');box.append(fields[key].label);}
-  box.append(el('p','Updating your account email is separate from Source identity. Signup does not verify this business.'),button('Save profile',async()=>{const patch=Object.fromEntries(Object.entries(fields).map(([k,f])=>[k,f.input.value||null]));await ctx.command('integrity_update_profile_v1',{source_id:p.source_id,expected_revision:p.revision,patch},p.source_id);closeModal();},'primary'),button(p.active?'Pause Source':'Reactivate Source',async()=>{await ctx.command('integrity_set_active_v1',{source_id:p.source_id,expected_revision:p.revision,active:!p.active},p.source_id);closeModal();}));modal('Source profile',box);}
 async function evidenceForm(o,ctx){
   if(!ctx.api.health?.capabilities.evidence_upload){message('Evidence uploads are currently unavailable.');return;}
   const {store,state,api,CONFIG}=ctx,user=state.session.user.id,source=o.source_id,box=el('div'),file=field('JPEG, PNG or WebP photo (up to 10 MB)','','file'),caption=field('Caption'),observed=dateField('When was it observed? (optional, your local time)',null),preview=el('div');file.input.accept='image/jpeg,image/png,image/webp';
@@ -99,5 +111,12 @@ async function evidenceForm(o,ctx){
   }
   modal('Evidence for '+o.food_name,box,()=>{if(url)URL.revokeObjectURL(url);});
 }
-function exportCatalogue(offers,p,ctx){const data={schema:'provision-member-catalogue/1.0.0-draft.1',contract_sha256:ctx.CONFIG.checksum,server_time:ctx.api.lastSynced,source:p,scope:'First catalogue page only; history export remains pending',offers},url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=el('a',null,{href:url,download:'provision-source-stock.json'});a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+async function exportCatalogue(_offers,p,ctx){
+  const g=ctx.state.generation,guard=()=>ctx.guard(g)&&ctx.state.sourceId===p.source_id;
+  message('Reading the full catalogue and batch histories…');
+  const records=await memberExport(ctx.api,p.source_id,guard);if(!guard())return;
+  const data={schema:'provision-member-history/1.0.0-draft.1',contract_sha256:ctx.CONFIG.checksum,source:p,...records};
+  const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=el('a',null,{href:url,download:'provision-source-history.json'});a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  message('Catalogue and histories exported. Pages were read at different times; this is not a backup.');
+}
 function printStock(offers,p){const box=el('div');box.append(el('h2',p.name),el('p','STAGING / TEST DATA · not a real stock sign'));for(const o of offers)box.append(el('p',`${o.food_name} · ${o.physical_quantity??'Unknown'} ${o.unit} · ${priceText(o.price,o.unit)}`));box.append(button('Print',()=>window.print()));modal('Current stock',box);}

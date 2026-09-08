@@ -2,6 +2,8 @@
 
 **Decision: NOT READY for release. Job 2 is incomplete.**
 
+Historical checkpoint report. See `GITHUB_PROGRESS.md` for the subsequent remote recovery, CI and engineering changes; the transport and first-page-only statements below describe the earlier checkpoint.
+
 This is a reviewable implementation checkpoint, not a deployed staging consumer or frontend acceptance certification. Production, the original root PWA files, historical SQL and the live branches have not been changed. No backend requests, synthetic users, emails, database migrations or ingestion were executed by this frontend task.
 
 ## Repository baseline
