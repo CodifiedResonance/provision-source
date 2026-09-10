@@ -5,3 +5,4 @@ release/
 !.env.example
 staging/src/validators.cjs
 *.local.json
+staging/src/validators.js

@@ -1,7 +1,7 @@
 {
   "name": "provision-source-integrity",
   "private": true,
-  "version": "5.0.0-staging.1",
+  "version": "5.0.0-staging.2",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"

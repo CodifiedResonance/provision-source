@@ -1,11 +1,11 @@
 {
   "contract_version": "1.0.0-draft.1",
-  "status": "STAGING_PARTIAL_RELEASE_BLOCKED",
+  "status": "STAGING_BACKEND_INTERFACE_RELEASE_BLOCKED",
   "production_project_ref": "aumcpvepxeytfiqhsmwf",
   "staging_project_ref": "qaaskvbhssonbktdjdki",
   "migration_sequence": "05-provisional-unregistered-history",
   "generated_at": "2026-09-08",
-  "deployment_gate": "BLOCKED_RESTORE_STORAGE_SMTP_AND_REMAINING_IMPLEMENTATION",
+  "deployment_gate": "PRODUCTION_REQUIRES_SEPARATE_APPROVAL; runtime integration_ready gates staging frontend adoption",
   "sql_return_type": "jsonb",
   "decimal_encoding": "strings; do not compute authoritative quantities on client",
   "unknown_semantics": "null means unknown; never zero by coercion",
@@ -1749,6 +1749,812 @@
         "message",
         "details",
         "hint"
+      ]
+    },
+    "SourceMembership": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "slug": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "owner",
+            "admin",
+            "editor",
+            "viewer"
+          ]
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "business_control": {
+          "type": "string",
+          "enum": [
+            "unreviewed",
+            "approved",
+            "rejected"
+          ]
+        }
+      },
+      "required": [
+        "source_id",
+        "slug",
+        "name",
+        "role",
+        "active",
+        "revision",
+        "business_control"
+      ]
+    },
+    "FoodDirectoryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "slug": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "default_unit": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "units": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "item",
+                  "each",
+                  "kg",
+                  "g",
+                  "litre",
+                  "ml",
+                  "dozen",
+                  "box",
+                  "bag",
+                  "loaf"
+                ]
+              },
+              "increment": {
+                "type": "string",
+                "enum": [
+                  "1",
+                  "0.001"
+                ]
+              }
+            },
+            "required": [
+              "unit",
+              "increment"
+            ]
+          }
+        }
+      },
+      "required": [
+        "id",
+        "slug",
+        "name",
+        "category",
+        "default_unit",
+        "units"
+      ]
+    },
+    "DemandArea": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "classification": {
+          "type": "string",
+          "enum": [
+            "live",
+            "directory",
+            "demo",
+            "test"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "classification"
+      ]
+    },
+    "MemberOffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source_slug": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "source_name": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "food_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "food_name": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "lot_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "legacy_identity": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 2000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "latest_event_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "classification": {
+          "type": "string",
+          "enum": [
+            "live",
+            "directory",
+            "demo",
+            "test"
+          ]
+        },
+        "lifecycle": {
+          "type": "string",
+          "enum": [
+            "growing",
+            "at_sea",
+            "ready",
+            "retired"
+          ]
+        },
+        "pressure": {
+          "type": "string",
+          "enum": [
+            "normal",
+            "surplus",
+            "needs_moving"
+          ]
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "members"
+          ]
+        },
+        "reservable": {
+          "type": "boolean"
+        },
+        "withdrawal_state": {
+          "type": "string",
+          "enum": [
+            "clear",
+            "withdrawn",
+            "recalled",
+            "safety_blocked"
+          ]
+        },
+        "source_active": {
+          "type": "boolean"
+        },
+        "physical_quantity": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,8})(\\.[0-9]{1,3})?$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "held_quantity": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,8})(\\.[0-9]{1,3})?$"
+        },
+        "claimable_quantity": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,8})(\\.[0-9]{1,3})?$"
+        },
+        "shortfall_quantity": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,8})(\\.[0-9]{1,3})?$"
+        },
+        "unit": {
+          "type": "string",
+          "enum": [
+            "item",
+            "each",
+            "kg",
+            "g",
+            "litre",
+            "ml",
+            "dozen",
+            "box",
+            "bag",
+            "loaf"
+          ]
+        },
+        "price": {
+          "$ref": "#/$defs/Price"
+        },
+        "availability_confirmed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "listing_expires_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "collection_start": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "collection_end": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_expiry_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "physical_dates": {
+          "$ref": "#/$defs/PhysicalDates"
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "truth_class": {
+              "type": "string",
+              "enum": [
+                "declared",
+                "observed",
+                "contextual",
+                "inferred"
+              ]
+            },
+            "channel": {
+              "type": "string",
+              "enum": [
+                "source_direct",
+                "legacy_unreviewed",
+                "registered_feed"
+              ]
+            },
+            "business_control": {
+              "type": "string",
+              "enum": [
+                "unreviewed",
+                "approved",
+                "rejected"
+              ]
+            },
+            "corroboration": {
+              "type": "string",
+              "enum": [
+                "none",
+                "under_review",
+                "corroborated"
+              ]
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "truth_class",
+            "channel",
+            "business_control",
+            "corroboration",
+            "label"
+          ]
+        },
+        "latitude": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "longitude": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "source_id",
+        "source_slug",
+        "source_name",
+        "food_id",
+        "food_name",
+        "lot_id",
+        "legacy_identity",
+        "latest_event_id",
+        "revision",
+        "classification",
+        "lifecycle",
+        "pressure",
+        "visibility",
+        "reservable",
+        "withdrawal_state",
+        "source_active",
+        "physical_quantity",
+        "held_quantity",
+        "claimable_quantity",
+        "shortfall_quantity",
+        "unit",
+        "price",
+        "availability_confirmed_at",
+        "received_at",
+        "listing_expires_at",
+        "collection_start",
+        "collection_end",
+        "next_expiry_at",
+        "physical_dates",
+        "provenance",
+        "latitude",
+        "longitude",
+        "note"
+      ]
+    },
+    "ClaimDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "$ref": "#/$defs/Claim"
+        },
+        "food_name": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "source_name": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "source_active": {
+          "type": "boolean"
+        },
+        "contact": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "public_email": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "public_phone": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "contact_url": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "collection_notes": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "address_line": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "locality": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "postcode": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "public_email",
+            "public_phone",
+            "contact_url",
+            "collection_notes",
+            "address_line",
+            "locality",
+            "postcode"
+          ]
+        }
+      },
+      "required": [
+        "claim",
+        "food_name",
+        "source_name",
+        "source_active",
+        "contact"
+      ]
+    },
+    "ReviewQueueItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_type": {
+          "type": "string",
+          "enum": [
+            "source",
+            "offer",
+            "event",
+            "evidence"
+          ]
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "submitted",
+            "under_review",
+            "upheld",
+            "dismissed",
+            "appealed",
+            "resolved"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 4000
+        }
+      },
+      "required": [
+        "id",
+        "target_type",
+        "target_id",
+        "status",
+        "created_at",
+        "source_id",
+        "category"
+      ]
+    },
+    "ReviewDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_type": {
+          "type": "string",
+          "enum": [
+            "source",
+            "offer",
+            "event",
+            "evidence"
+          ]
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "submitted",
+            "under_review",
+            "upheld",
+            "dismissed",
+            "appealed",
+            "resolved"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "submitted_reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "can_review": {
+          "type": "boolean"
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "decision": {
+                "type": "string",
+                "maxLength": 4000
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "decision",
+              "created_at",
+              "reason"
+            ]
+          }
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 2048
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "target_type",
+        "target_id",
+        "status",
+        "created_at",
+        "source_id",
+        "category",
+        "submitted_reason",
+        "can_review",
+        "decisions",
+        "next_cursor"
+      ]
+    },
+    "ContractIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "document_revision": {
+          "const": "staging-20260910.1"
+        },
+        "contract_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "project_ref": {
+          "const": "qaaskvbhssonbktdjdki"
+        },
+        "integration_ready": {
+          "type": "boolean"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        }
+      },
+      "required": [
+        "document_revision",
+        "contract_sha256",
+        "project_ref",
+        "integration_ready",
+        "capabilities"
       ]
     }
   },
@@ -7478,6 +8284,1468 @@
         ]
       },
       "notes": "Requester may withdraw before closure starts. Acquires principal fence and request lock; exact ID/payload replay is stable. Closed accounts cannot regain access."
+    },
+    {
+      "name": "integrity_my_sources_v1",
+      "sql_signature": "public.integrity_my_sources_v1(p_request jsonb) returns jsonb",
+      "transport": {
+        "method": "POST",
+        "path": "/rest/v1/rpc/integrity_my_sources_v1",
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p_request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "page": {
+                  "$ref": "#/$defs/Page"
+                }
+              },
+              "required": [
+                "page"
+              ]
+            }
+          },
+          "required": [
+            "p_request"
+          ]
+        }
+      },
+      "auth": "authenticated",
+      "status": "staging_deployed_candidate",
+      "mutation": false,
+      "request_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "page": {
+            "$ref": "#/$defs/Page"
+          }
+        },
+        "required": [
+          "page"
+        ]
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0.0-draft.1"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/SourceMembership"
+                }
+              },
+              "next_cursor": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "next_expiry_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "next_cursor",
+              "next_expiry_at"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_time",
+          "data"
+        ]
+      },
+      "notes": "Only caller membership; includes Sources without offers and paused Sources. Every call rechecks current membership and account closure. No other member identifiers or emails."
+    },
+    {
+      "name": "integrity_foods_v1",
+      "sql_signature": "public.integrity_foods_v1(p_request jsonb) returns jsonb",
+      "transport": {
+        "method": "POST",
+        "path": "/rest/v1/rpc/integrity_foods_v1",
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p_request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "search": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "page": {
+                  "$ref": "#/$defs/Page"
+                }
+              },
+              "required": [
+                "search",
+                "page"
+              ]
+            }
+          },
+          "required": [
+            "p_request"
+          ]
+        }
+      },
+      "auth": "public",
+      "status": "staging_deployed_candidate",
+      "mutation": false,
+      "request_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "search": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "page": {
+            "$ref": "#/$defs/Page"
+          }
+        },
+        "required": [
+          "search",
+          "page"
+        ]
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0.0-draft.1"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/FoodDirectoryItem"
+                }
+              },
+              "next_cursor": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "next_expiry_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "next_cursor",
+              "next_expiry_at"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_time",
+          "data"
+        ]
+      },
+      "notes": "Active foods, including foods with no offers. Units come from configured defaults and existing historical usage, not inferred conversions. New lot/demand writes reject unconfigured food-unit pairs; existing historical rows are not converted."
+    },
+    {
+      "name": "integrity_demand_areas_v1",
+      "sql_signature": "public.integrity_demand_areas_v1(p_request jsonb) returns jsonb",
+      "transport": {
+        "method": "POST",
+        "path": "/rest/v1/rpc/integrity_demand_areas_v1",
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p_request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "search": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "page": {
+                  "$ref": "#/$defs/Page"
+                }
+              },
+              "required": [
+                "search",
+                "page"
+              ]
+            }
+          },
+          "required": [
+            "p_request"
+          ]
+        }
+      },
+      "auth": "public",
+      "status": "staging_deployed_candidate",
+      "mutation": false,
+      "request_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "search": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "page": {
+            "$ref": "#/$defs/Page"
+          }
+        },
+        "required": [
+          "search",
+          "page"
+        ]
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0.0-draft.1"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/DemandArea"
+                }
+              },
+              "next_cursor": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "next_expiry_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "next_cursor",
+              "next_expiry_at"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_time",
+          "data"
+        ]
+      },
+      "notes": "Only configured active coarse named areas. Test areas remain explicitly test; no new real areas are approved by this migration. No coordinates or household counts."
+    },
+    {
+      "name": "integrity_my_demand_v1",
+      "sql_signature": "public.integrity_my_demand_v1(p_request jsonb) returns jsonb",
+      "transport": {
+        "method": "POST",
+        "path": "/rest/v1/rpc/integrity_my_demand_v1",
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p_request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "page": {
+                  "$ref": "#/$defs/Page"
+                }
+              },
+              "required": [
+                "page"
+              ]
+            }
+          },
+          "required": [
+            "p_request"
+          ]
+        }
+      },
+      "auth": "authenticated",
+      "status": "staging_deployed_candidate",
+      "mutation": false,
+      "request_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "page": {
+            "$ref": "#/$defs/Page"
+          }
+        },
+        "required": [
+          "page"
+        ]
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0.0-draft.1"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Demand"
+                }
+              },
+              "next_cursor": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "next_expiry_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "next_cursor",
+              "next_expiry_at"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_time",
+          "data"
+        ]
+      },
+      "notes": "Caller-owned active unexpired confirmed signals only; expiry applied on reads. No general summary."
+    },
+    {
+      "name": "integrity_member_offer_v1",
+      "sql_signature": "public.integrity_member_offer_v1(p_request jsonb) returns jsonb",
+      "transport": {
+        "method": "POST",
+        "path": "/rest/v1/rpc/integrity_member_offer_v1",
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p_request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "offer_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "lot_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "source_id",
+                "offer_id",
+                "lot_id"
+              ]
+            }
+          },
+          "required": [
+            "p_request"
+          ]
+        }
+      },
+      "auth": "authenticated; current owner/admin/editor/viewer membership",
+      "status": "staging_deployed_candidate",
+      "mutation": false,
+      "request_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "offer_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lot_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "source_id",
+          "offer_id",
+          "lot_id"
+        ]
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0.0-draft.1"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "$ref": "#/$defs/MemberOffer"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_time",
+          "data"
+        ]
+      },
+      "notes": "Exactly one offer_id or lot_id. Includes expired, retired and paused offers with current authoritative revision and previously published note. New empty lots return NOT_FOUND."
+    },
+    {
+      "name": "integrity_claim_detail_v1",
+      "sql_signature": "public.integrity_claim_detail_v1(p_request jsonb) returns jsonb",
+      "transport": {
+        "method": "POST",
+        "path": "/rest/v1/rpc/integrity_claim_detail_v1",
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p_request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "claim_id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "claim_id"
+              ]
+            }
+          },
+          "required": [
+            "p_request"
+          ]
+        }
+      },
+      "auth": "authenticated; claimant or current Source member",
+      "status": "staging_deployed_candidate",
+      "mutation": false,
+      "request_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "claim_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "claim_id"
+        ]
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0.0-draft.1"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "$ref": "#/$defs/ClaimDetail"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_time",
+          "data"
+        ]
+      },
+      "notes": "Frozen claim terms are returned unchanged. Names and explicitly public business contact/collection fields are current and remain accessible to entitled holders after expiry/pause. No employee or private account data."
+    },
+    {
+      "name": "integrity_source_claims_inbox_v1",
+      "sql_signature": "public.integrity_source_claims_inbox_v1(p_request jsonb) returns jsonb",
+      "transport": {
+        "method": "POST",
+        "path": "/rest/v1/rpc/integrity_source_claims_inbox_v1",
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p_request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "filter": {
+                  "type": "string",
+                  "enum": [
+                    "actionable",
+                    "all",
+                    "requested",
+                    "accepted",
+                    "declined",
+                    "cancelled",
+                    "expired",
+                    "collected",
+                    "source_unfulfillable"
+                  ]
+                },
+                "page": {
+                  "$ref": "#/$defs/Page"
+                }
+              },
+              "required": [
+                "source_id",
+                "filter",
+                "page"
+              ]
+            }
+          },
+          "required": [
+            "p_request"
+          ]
+        }
+      },
+      "auth": "authenticated; current Source member",
+      "status": "staging_deployed_candidate",
+      "mutation": false,
+      "request_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "filter": {
+            "type": "string",
+            "enum": [
+              "actionable",
+              "all",
+              "requested",
+              "accepted",
+              "declined",
+              "cancelled",
+              "expired",
+              "collected",
+              "source_unfulfillable"
+            ]
+          },
+          "page": {
+            "$ref": "#/$defs/Page"
+          }
+        },
+        "required": [
+          "source_id",
+          "filter",
+          "page"
+        ]
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0.0-draft.1"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Claim"
+                }
+              },
+              "next_cursor": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "next_expiry_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "next_cursor",
+              "next_expiry_at"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_time",
+          "data"
+        ]
+      },
+      "notes": "Filtering and requested/accepted priority occur before LIMIT. Expiry uses server time. Current-state keyset order; a dataset change or effective expiry invalidates the cursor with INVALID_CURSOR. Restart on invalidation rather than merging indefinitely; next_expiry_at covers all pending claims in this Source."
+    },
+    {
+      "name": "integrity_review_queue_v1",
+      "sql_signature": "public.integrity_review_queue_v1(p_request jsonb) returns jsonb",
+      "transport": {
+        "method": "POST",
+        "path": "/rest/v1/rpc/integrity_review_queue_v1",
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p_request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "page": {
+                  "$ref": "#/$defs/Page"
+                }
+              },
+              "required": [
+                "page"
+              ]
+            }
+          },
+          "required": [
+            "p_request"
+          ]
+        }
+      },
+      "auth": "authenticated; active independent reviewer",
+      "status": "staging_deployed_candidate",
+      "mutation": false,
+      "request_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "page": {
+            "$ref": "#/$defs/Page"
+          }
+        },
+        "required": [
+          "page"
+        ]
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0.0-draft.1"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ReviewQueueItem"
+                }
+              },
+              "next_cursor": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "next_expiry_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "next_cursor",
+              "next_expiry_at"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_time",
+          "data"
+        ]
+      },
+      "notes": "Only actionable eligible reviews. Excludes own reports, own Sources and appeals of this reviewer\u2019s prior decision."
+    },
+    {
+      "name": "integrity_review_detail_v1",
+      "sql_signature": "public.integrity_review_detail_v1(p_request jsonb) returns jsonb",
+      "transport": {
+        "method": "POST",
+        "path": "/rest/v1/rpc/integrity_review_detail_v1",
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p_request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "report_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "page": {
+                  "$ref": "#/$defs/Page"
+                }
+              },
+              "required": [
+                "report_id",
+                "page"
+              ]
+            }
+          },
+          "required": [
+            "p_request"
+          ]
+        }
+      },
+      "auth": "authenticated; submitter, Source owner/admin or eligible independent reviewer",
+      "status": "staging_deployed_candidate",
+      "mutation": false,
+      "request_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "report_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "page": {
+            "$ref": "#/$defs/Page"
+          }
+        },
+        "required": [
+          "report_id",
+          "page"
+        ]
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0.0-draft.1"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "$ref": "#/$defs/ReviewDetail"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_time",
+          "data"
+        ]
+      },
+      "notes": "Authorisation checked per report. Source members cannot adjudicate their own Source. Source admins see redacted submitted/free-text reasons unless they submitted the report; no reviewer identity is exposed. decisions is bounded by page.limit and has its own next_cursor in ascending created_at/UUID order; can_review is false for closed states."
+    },
+    {
+      "name": "integrity_contract_identity_v1",
+      "sql_signature": "public.integrity_contract_identity_v1(p_request jsonb) returns jsonb",
+      "transport": {
+        "method": "POST",
+        "path": "/rest/v1/rpc/integrity_contract_identity_v1",
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p_request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {},
+              "required": []
+            }
+          },
+          "required": [
+            "p_request"
+          ]
+        }
+      },
+      "auth": "public",
+      "status": "staging_deployed_candidate",
+      "mutation": false,
+      "request_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0.0-draft.1"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "$ref": "#/$defs/ContractIdentity"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_time",
+          "data"
+        ]
+      },
+      "notes": "Separate runtime binding; compare both revision and exact canonical checksum. integration_ready becomes true only after backend role/API regression. This flag covers the backend interface only, not external email, recovery or Production release. capabilities lists the exact registered RPC names."
+    },
+    {
+      "name": "integrity_publish_v2",
+      "sql_signature": "public.integrity_publish_v2(p_request jsonb) returns jsonb",
+      "transport": {
+        "method": "POST",
+        "path": "/rest/v1/rpc/integrity_publish_v2",
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p_request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "operation_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "source_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "lot_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "expected_revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "physical_quantity": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]{0,8})(\\.[0-9]{1,3})?$"
+                },
+                "price": {
+                  "$ref": "#/$defs/Price"
+                },
+                "lifecycle": {
+                  "type": "string",
+                  "enum": [
+                    "growing",
+                    "at_sea",
+                    "ready"
+                  ]
+                },
+                "pressure": {
+                  "type": "string",
+                  "enum": [
+                    "normal",
+                    "surplus",
+                    "needs_moving"
+                  ]
+                },
+                "visibility": {
+                  "type": "string",
+                  "enum": [
+                    "public",
+                    "members"
+                  ]
+                },
+                "reservable": {
+                  "type": "boolean"
+                },
+                "listing_expires_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "collection_start": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "collection_end": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "note": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 2000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "operation_id",
+                "source_id",
+                "lot_id",
+                "expected_revision",
+                "physical_quantity",
+                "price",
+                "lifecycle",
+                "pressure",
+                "visibility",
+                "reservable",
+                "listing_expires_at",
+                "collection_start",
+                "collection_end"
+              ]
+            }
+          },
+          "required": [
+            "p_request"
+          ]
+        }
+      },
+      "auth": "authenticated; owner/admin/editor",
+      "status": "staging_deployed_candidate",
+      "mutation": true,
+      "request_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "physical_quantity": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,8})(\\.[0-9]{1,3})?$"
+          },
+          "price": {
+            "$ref": "#/$defs/Price"
+          },
+          "lifecycle": {
+            "type": "string",
+            "enum": [
+              "growing",
+              "at_sea",
+              "ready"
+            ]
+          },
+          "pressure": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "surplus",
+              "needs_moving"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "members"
+            ]
+          },
+          "reservable": {
+            "type": "boolean"
+          },
+          "listing_expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "collection_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "collection_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "operation_id",
+          "source_id",
+          "lot_id",
+          "expected_revision",
+          "physical_quantity",
+          "price",
+          "lifecycle",
+          "pressure",
+          "visibility",
+          "reservable",
+          "listing_expires_at",
+          "collection_start",
+          "collection_end"
+        ]
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0.0-draft.1"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "$ref": "#/$defs/Offer"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_time",
+          "data"
+        ]
+      },
+      "notes": "Same stock/role/idempotency semantics as v1; distinct operation namespace. Omitted note preserves old content; explicit null clears; string replaces. v1 response/semantics remain unchanged."
+    },
+    {
+      "name": "integrity_update_demand_v1",
+      "sql_signature": "public.integrity_update_demand_v1(p_request jsonb) returns jsonb",
+      "transport": {
+        "method": "POST",
+        "path": "/rest/v1/rpc/integrity_update_demand_v1",
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p_request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "operation_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "food_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "area_id": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "area_confirmed": {
+                  "const": true
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]{0,8})(\\.[0-9]{1,3})?$"
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "item",
+                    "each",
+                    "kg",
+                    "g",
+                    "litre",
+                    "ml",
+                    "dozen",
+                    "box",
+                    "bag",
+                    "loaf"
+                  ]
+                },
+                "cadence": {
+                  "type": "string",
+                  "enum": [
+                    "once",
+                    "daily",
+                    "weekly",
+                    "fortnightly",
+                    "monthly"
+                  ]
+                },
+                "expires_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "demand_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "expected_confirmed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "operation_id",
+                "food_id",
+                "area_id",
+                "area_confirmed",
+                "quantity",
+                "unit",
+                "cadence",
+                "expires_at",
+                "demand_id",
+                "expected_confirmed_at"
+              ]
+            }
+          },
+          "required": [
+            "p_request"
+          ]
+        }
+      },
+      "auth": "authenticated; caller-owned signal",
+      "status": "staging_deployed_candidate",
+      "mutation": true,
+      "request_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "food_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "area_id": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "area_confirmed": {
+            "const": true
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,8})(\\.[0-9]{1,3})?$"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "item",
+              "each",
+              "kg",
+              "g",
+              "litre",
+              "ml",
+              "dozen",
+              "box",
+              "bag",
+              "loaf"
+            ]
+          },
+          "cadence": {
+            "type": "string",
+            "enum": [
+              "once",
+              "daily",
+              "weekly",
+              "fortnightly",
+              "monthly"
+            ]
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "demand_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_confirmed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "operation_id",
+          "food_id",
+          "area_id",
+          "area_confirmed",
+          "quantity",
+          "unit",
+          "cadence",
+          "expires_at",
+          "demand_id",
+          "expected_confirmed_at"
+        ]
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0.0-draft.1"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "$ref": "#/$defs/Demand"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_time",
+          "data"
+        ]
+      },
+      "notes": "Updates/reconfirms stable signal ID with confirmed-at optimistic concurrency, same-payload replay and explicit area confirmation. Can reactivate an expired/cancelled own signal; existing cancel RPC still applies."
     }
   ],
   "http_errors": {
@@ -7594,7 +9862,8 @@
     "order": "ascending immutable UUID",
     "cursor": "last returned UUID; null at end",
     "limit": "default 100, explicit 1..100",
-    "consistency": "Each page is a fresh transaction. Refresh after changes; no snapshot across pages. Catalogue/claims/history are not active-first."
+    "consistency": "Each page is a fresh transaction. Refresh after changes; no snapshot across pages. Catalogue/claims/history are not active-first.",
+    "integration_additions": "Scope-bound JSON keyset cursors. Current-state traversal, not snapshot isolation. Restart after Realtime invalidation or the next expiry. Invalid/reused cross-account or cross-filter cursors fail. Inbox dataset changes/expiry invalidate its cursor; restart from the first page on INVALID_CURSOR. Inbox next_expiry_at covers all pending claims in the Source. Claims priority: requested, accepted, terminal; created_at then UUID breaks ties."
   },
   "legacy_compatibility": {
     "view": "public.current_offers",
@@ -7605,7 +9874,7 @@
     "activation": "integrity_activate_legacy_offer_v1: owner/admin, explicit fresh physical count and historical_claims_reviewed=true, frozen Source/offer ID and slug, new mapped lot, preserved item unit and unknown dates; no historical fulfilment subtraction.",
     "history": "Original null-lot events remain unchanged and readable through the mapped lot. Mapping is private and immutable."
   },
-  "document_revision": "staging-20260908.3",
+  "document_revision": "staging-20260910.1",
   "server_only_signatures": [
     {
       "signature": "public.integrity_evidence_worker_context_v1(p_source_id uuid,p_attachment_id uuid,p_actor uuid,p_mode text) returns jsonb",
@@ -7894,5 +10163,20 @@
     "external_alert_destination": "NOT_CONFIGURED",
     "maintenance_schedule": "APPROVED_ENABLED; see dated scheduled-run evidence",
     "catalog_boundary": "Private parameterless postgres-owned read-only helper returns the fixed expiry job health boolean because cron catalog RLS hides its rows from the restricted application role."
+  },
+  "runtime_identity_definition": "Hash exact UTF-8 JSON bytes including final newline. Expected checksum lives only in contract.sha256 and generated deployment SQL, never inside these JSON bytes. Runtime identity is a separate RPC.",
+  "integration_change_notes": {
+    "old_operations": "44 old request/response schemas retained as JSON objects. New lot/demand writes now reject food-unit pairs absent from the catalogue; historical rows are not converted and committed replays remain supported.",
+    "new_operations": 12,
+    "known_limits": [
+      "Current-state paging; restart after invalidation or expiry. Inbox rejects a cursor after dataset changes.",
+      "Only configured synthetic area test-area-a is approved in staging; no real pilot geography approval implied.",
+      "Backend readiness excludes external email receipt, full isolated recovery, frontend acceptance and Production cutover."
+    ]
+  },
+  "integration_errors": {
+    "INVALID_CURSOR": "HTTP 400: malformed, wrong scope or stale inbox dataset; clear cursor and reload.",
+    "UNSUPPORTED_FOOD_UNIT": "HTTP 400: choose a unit returned by the food catalogue.",
+    "REVISION_CONFLICT": "HTTP 409: refetch the current member offer or own demand before offering retry."
   }
 }

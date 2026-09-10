@@ -98,7 +98,7 @@ test('malformed/changed response disables writes instead of coercing quantities'
 });
 test('fresh read clock is not changed by old mutation replay timestamps',async()=>{
  let now=Date.parse('2026-09-08T12:00:00Z');const a=new IntegrityApi(config,{clock:()=>now,session:()=>({access_token:'test'}),fetcher:async u=>Response.json(u.endsWith('health_v1')?envelope(health):{...envelope({lot_id:uuid,revision:0}),server_time:'2020-01-01T00:00:00Z'})});
- await a.rpc('integrity_health_v1',{});const offset=a.offset;
+ await a.rpc('integrity_health_v1',{});const offset=a.offset;a.identity={integration_ready:true}; // Runtime binding is exercised independently in runtime-contract.test.mjs.
  await a.rpc('integrity_create_lot_v1',{operation_id:uuid,source_id:uuid,food_id:uuid,unit:'kg',physical_dates:{harvested_at:null,landed_at:null,baked_at:null,packed_at:null,date_type:null,date_value:null,date_timezone:null,handling:null,allergen_information:null}});
  assert.equal(a.offset,offset);assert.equal(a.lastSynced,'2026-09-08T12:00:00Z');
 });

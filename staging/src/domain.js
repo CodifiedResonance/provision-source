@@ -20,8 +20,8 @@ export function priceText(p,unit){
 export function locationText(o){return o.latitude===null||o.longitude===null?'Location not yet resolved':`${o.latitude.toFixed(4)}, ${o.longitude.toFixed(4)}`;}
 export function safeUrl(raw){try{const u=new URL(raw);return ['https:','http:'].includes(u.protocol)&&!u.username&&!u.password?u.href:null;}catch{return null;}}
 export function expired(o,now){return o.listing_expires_at!==null&&Date.parse(o.listing_expires_at)<=now;}
-export function eligible(o,now){return o.classification==='live'&&o.source_active&&o.visibility==='public'&&o.withdrawal_state==='clear'&&!expired(o,now);}
-export function claimable(o,now){return eligible(o,now)&&o.lifecycle==='ready'&&o.reservable&&decimal(o.claimable_quantity)>0n&&(!o.collection_end||Date.parse(o.collection_end)>now);}
+export function eligible(o,now,classification='live'){return ['live','test'].includes(classification)&&o.classification===classification&&o.source_active&&o.visibility==='public'&&o.withdrawal_state==='clear'&&!expired(o,now);}
+export function claimable(o,now,classification='live'){return eligible(o,now,classification)&&o.lifecycle==='ready'&&o.reservable&&decimal(o.claimable_quantity)>0n&&(!o.collection_end||Date.parse(o.collection_end)>now);}
 export function replaceRecords(records){return new Map(records.map(o=>[o.id,structuredClone(o)]));}
 export function exportOffers(items,serverTime,checksum){return {schema:'provision-query/1.0.0-draft.1',contract_sha256:checksum,server_time:serverTime,scope:'One bounded RPC page; not complete network coverage',items:structuredClone(items)};}
 export function combinationCandidates(items,now){return items.filter(o=>claimable(o,now)).slice(0,24);}

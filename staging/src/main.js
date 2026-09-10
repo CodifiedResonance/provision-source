@@ -6,6 +6,8 @@ import {Reconciler} from './reconcile.js';
 import {el,$,button,message,field,select,check,modal,closeModal,initDialog,empty,facts} from './dom.js';
 import {time,priceText,locationText,eligible,claimable,quantity,exportOffers} from './domain.js';
 import {sourceScreen,resumeSourceDraft} from './source.js';
+import {readPages} from './member-data.js';
+import {interestScreen,demandDialog,reviewScreen,claimDetails} from './integration-views.js';
 import {installLifecycle} from './pwa.js';
 
 const source=CONFIG.app==='source';
@@ -14,16 +16,17 @@ $('#brand').textContent=source?'PROVISION SOURCE':'PROVISION';
 document.title=(source?'Provision Source':'Provision')+' · Staging';
 $('#question').textContent=source?'What can you provide today?':'What do you need?';
 $('#introText').textContent=source?'Remember yesterday; ask only what changed.':'What a place can provide, with its source and uncertainty in view.';
-const state={session:null,view:source?'Today':'Offers',generation:0,offers:[],claims:[],notices:[],cursor:null,search:'',sourceId:null,loading:true,error:null,mutating:0};
+const state={memberships:[],foods:[],areas:[],demand:[],reviews:[],inboxFilter:'actionable',offerClass:'test',session:null,view:source?'Today':'Offers',generation:0,offers:[],claims:[],notices:[],cursor:null,search:'',sourceId:null,loading:true,error:null,authError:null,mutating:0};
 const intentKey=`provision:${CONFIG.app}:staging:${location.pathname}:intent`;
 function rememberIntent(type,o){try{sessionStorage.setItem(intentKey,JSON.stringify({type,offerId:o.id,createdAt:Date.now()}));}catch{message('This browser could not retain the intended action. Sign in, then reopen the offer.');}}
 const store=new PrivateStore(CONFIG.app),api=new IntegrityApi(CONFIG,{session:()=>state.session});
 const outbox=new Outbox(store,api,{identity:()=>state.session?.user.id});
 const sb=CONFIG.publishableKey?createClient(CONFIG.url,CONFIG.publishableKey,{auth:{flowType:'pkce',detectSessionInUrl:false,persistSession:true,storageKey:`provision-${CONFIG.app}-staging-auth`}}):null;
-const ctx={CONFIG,state,store,api,outbox,el,button,message,field,select,check,modal,closeModal,empty,facts,refresh:()=>reconciler.run(),command,requireAuth,guard};
+const ctx={CONFIG,state,store,api,outbox,el,button,message,field,select,check,modal,closeModal,empty,facts,refresh:()=>reconciler.run(),command,requireAuth,guard,authDialog};
+api.onPermissionDenied=async(_name,request)=>{if(_name==='integrity_review_queue_v1')return;const user=state.session?.user.id;closeModal();if(request.source_id&&request.source_id===state.sourceId){state.sourceId=null;state.claims=[];state.memberships=[];if(user)await store.clearServer(user,request.source_id);}$('#workspace').replaceChildren(empty('Access could not be confirmed','Refresh to recheck your current permissions. Your drafts remain on this device.'));};
 let channel=null,sourceCleanup=()=>{};
 initDialog();
-const tabs=source?['Today','Claims','Saved work','Notices','Support']:['Offers','My holds','My interest','Saved work','Notices','Support'];
+const tabs=source?['Today','Claims','Saved work','Notices','Reviews','Support']:['Offers','My holds','My interest','Saved work','Notices','Reviews','Support'];
 for(const tab of tabs)$('#nav').append(button(tab,async()=>{state.view=tab;message('');await reconciler.run();}));
 function guard(generation){return generation===state.generation;}
 function connection(){
@@ -39,14 +42,18 @@ async function command(name,payload,sourceId=null,{operationId=null}={}){
   finally{state.mutating--;}
 }
 async function revalidateAfterWrite(row){
-  if(row.name.includes('_claim_'))await api.page(source?'integrity_source_claims_v1':'integrity_my_claims_v1',source&&row.source?{source_id:row.source}:{});
+  if(row.name.includes('_claim_')){const payload=JSON.parse(row.payload);if(payload.claim_id)await api.rpc('integrity_claim_detail_v1',{claim_id:payload.claim_id});if(row.source&&source)await api.page('integrity_source_claims_inbox_v1',{source_id:row.source,filter:'actionable'});else await api.page('integrity_my_claims_v1',{});}
   await api.page('integrity_offers_v1',{food_id:null,source_id:row.source||null});
 }
 async function refresh(){
   const g=state.generation;connection();
   if(!CONFIG.publishableKey){state.loading=false;state.error='STAGING_SETUP_REQUIRED';await render();return null;}
   try{
+    api.identity=null;api.health=null;await api.rpc('integrity_contract_identity_v1',{});
     await api.rpc('integrity_health_v1',{});if(!guard(g))return null;
+    const dirs=await Promise.all([readPages(api,'integrity_foods_v1',{search:null},{guard:()=>guard(g)}),readPages(api,'integrity_demand_areas_v1',{search:null},{guard:()=>guard(g)})]);
+    if(!guard(g))return null;state.foods=dirs[0].items;state.areas=dirs[1].items;
+    if(source&&state.session){const memberships=await readPages(api,'integrity_my_sources_v1',{},{guard:()=>guard(g),key:'source_id'});if(!guard(g))return null;state.memberships=memberships.items;if(state.sourceId&&!state.memberships.some(m=>m.source_id===state.sourceId)){await store.clearServer(state.session.user.id,state.sourceId);state.sourceId=null;state.claims=[];closeModal();}if(!state.sourceId&&state.memberships.length===1)state.sourceId=state.memberships[0].source_id;}
     state.error=null;let next=null;
     if(!source&&state.view==='Offers'){
       const id=new URL(location.href).searchParams.get('source');
@@ -54,17 +61,18 @@ async function refresh(){
       if(!guard(g))return null;state.offers=response.data.items;state.cursor=response.data.next_cursor;next=response.data.next_expiry_at;
     }
     if(state.session&&['My holds','Claims'].includes(state.view)){
-      if(!source||state.sourceId){const response=await api.page(source?'integrity_source_claims_v1':'integrity_my_claims_v1',source?{source_id:state.sourceId}:{});
+      if(!source||state.sourceId){const response=await api.page(source?'integrity_source_claims_inbox_v1':'integrity_my_claims_v1',source?{source_id:state.sourceId,filter:state.inboxFilter}:{});
       if(!guard(g))return null;state.claims=response.data.items;state.cursor=response.data.next_cursor;next=response.data.next_expiry_at;}
     }
+    if(state.session&&state.view==='My interest'){const r=await api.page('integrity_my_demand_v1',{});if(!guard(g))return null;state.demand=r.data.items;state.cursor=r.data.next_cursor;next=r.data.next_expiry_at;}
     if(state.session&&state.view==='Notices'){
       const r=await api.page('integrity_notifications_v1',{});if(!guard(g))return null;state.notices=r.data.items;state.cursor=r.data.next_cursor;next=r.data.next_expiry_at;
     }
-    if(!guard(g))return null;state.loading=false;await render();connection();return next;
+    if(!guard(g))return null;state.loading=false;await render();connection();return next||(source&&state.view==='Today'?state.sourceExpiry:null);
   }catch(e){
     if(!guard(g))return null;state.error=e.code||e.message;state.loading=false;
     // No retained private display after a current permission denial.
-    if([401,403].includes(e.status)){state.claims=[];state.notices=[];sourceCleanup();}
+    if([401,403].includes(e.status)){state.claims=[];state.notices=[];state.demand=[];state.reviews=[];state.memberships=[];sourceCleanup();}
     await render();connection();return null;
   }
 }
@@ -78,28 +86,29 @@ async function render(){
   }
   if(api.incompatible){root.append(empty('Update required','This client could not validate the server contract. Writes are disabled. Your saved work remains on this device.'));return;}
   if(state.error)root.append(empty('Current state could not be confirmed',state.error==='CONNECTION_UNCONFIRMED'?'Check your connection, then refresh. Saved work has been retained.':`Request could not complete (${state.error}). Refresh before trying again.`));
-  if(!state.error)message(api.health?.write_mode!=='enabled'?'The network is read-only. Your device drafts can still be saved.':'');
+  if(!state.error)message(state.authError||(!['enabled','degraded'].includes(api.health?.write_mode)?'The network is read-only. Your device drafts can still be saved.':api.health?.write_mode==='degraded'?'Staging has limited services. Enabled actions remain available; external delivery is not active.':''),!!state.authError);
   if(source&&state.view==='Today'){sourceCleanup=await sourceScreen(root,ctx);return;}
   if(state.view==='Offers'){renderOffers(root);return;}
   if(state.view==='Support'){support(root);return;}
   if(!state.session){root.append(empty('Your private space','Sign in to see your holds, notices and saved work.'),button('Sign in',authDialog,'primary'));return;}
   if(state.view==='Saved work')return savedWork(root);
-  if(state.view==='My interest')return interest(root);
+  if(state.view==='My interest')return interestScreen(root,ctx);
+  if(state.view==='Reviews')return reviewScreen(root,ctx);
   if(['My holds','Claims'].includes(state.view))return renderClaims(root);
   if(state.view==='Notices')return notices(root);
 }
 function renderOffers(root){
   const bar=el('div',null,{class:'toolbar'}),search=field('Find a food or Source',state.search,'search');
   search.input.addEventListener('input',()=>{state.search=search.input.value;list();});
-  bar.append(search.label,button('Export this page',()=>download('provision-staging-offers.json',exportOffers(state.offers,api.lastSynced,CONFIG.checksum))));
+  bar.append(search.label,el('p','Synthetic test offers · no real collection arrangements',{class:'badge'}),button('Export this page',()=>download('provision-staging-offers.json',exportOffers(state.offers,api.lastSynced,CONFIG.checksum))));
   const cards=el('div',null,{class:'cards'});root.append(bar,cards);
-  if(state.session){try{const intent=JSON.parse(sessionStorage.getItem(intentKey));if(intent&&Date.now()-intent.createdAt<1800000){const o=state.offers.find(x=>x.id===intent.offerId);if(o&&eligible(o,api.now()))root.prepend(button('Continue your '+(intent.type==='claim'?'hold request':'interest'),()=>{sessionStorage.removeItem(intentKey);return intent.type==='claim'?claimForm(o):demandForm(o);}));else root.prepend(el('p','Your earlier offer is not on the current page. Find and review it again before submitting.'));}else sessionStorage.removeItem(intentKey);}catch{/* no automatic action if recovery data is invalid */}}
-  function list(){cards.replaceChildren();const offers=state.offers.filter(o=>eligible(o,api.now())&&(o.food_name+' '+o.source_name).toLowerCase().includes(state.search.toLowerCase()));
-    if(!offers.length){cards.append(empty('No current confirmed offers','Coverage is incomplete. This does not mean the food does not exist locally. Demo, directory and test records are excluded from recommendations.'));return;}
+  if(state.session){try{const intent=JSON.parse(sessionStorage.getItem(intentKey));if(intent&&Date.now()-intent.createdAt<1800000){const o=state.offers.find(x=>x.id===intent.offerId);if(o&&eligible(o,api.now(),state.offerClass))root.prepend(button('Continue your '+(intent.type==='claim'?'hold request':'interest'),()=>{sessionStorage.removeItem(intentKey);return intent.type==='claim'?claimForm(o):demandForm(o);}));else root.prepend(el('p','Your earlier offer is not on the current page. Find and review it again before submitting.'));}else sessionStorage.removeItem(intentKey);}catch{/* no automatic action if recovery data is invalid */}}
+  function list(){cards.replaceChildren();const offers=state.offers.filter(o=>eligible(o,api.now(),state.offerClass)&&(o.food_name+' '+o.source_name).toLowerCase().includes(state.search.toLowerCase()));
+    if(!offers.length){cards.append(empty('No current confirmed offers','Coverage is incomplete. This does not mean the food does not exist locally. This view shows synthetic test offers only. It does not recommend real food or mix test records with live recommendations.'));return;}
     for(const o of offers){const card=el('article',null,{class:'card'}),actions=el('div',null,{class:'actions'});
-      card.append(el('p',o.source_name,{class:'eyebrow'}),el('h2',o.food_name),el('p',priceText(o.price,o.unit),{class:'price'}),el('p',`${o.pressure.replaceAll('_',' ')} · declared ${time(o.availability_confirmed_at)}`),el('p',o.lifecycle==='ready'?'Ready':`Forthcoming · ${o.lifecycle.replaceAll('_',' ')}`,{class:'badge'}),facts([['Physical stock',`${o.physical_quantity??'Unknown'} ${o.unit}`],['Held',`${o.held_quantity} ${o.unit}`],['Available to claim',`${o.claimable_quantity} ${o.unit}`],['Location',locationText(o)]]));
+      card.append(el('p','TEST DATA',{class:'badge'}),el('p',o.source_name,{class:'eyebrow'}),el('h2',o.food_name),el('p',priceText(o.price,o.unit),{class:'price'}),el('p',`${o.pressure.replaceAll('_',' ')} · declared ${time(o.availability_confirmed_at)}`),el('p',o.lifecycle==='ready'?'Ready':`Forthcoming · ${o.lifecycle.replaceAll('_',' ')}`,{class:'badge'}),facts([['Physical stock',`${o.physical_quantity??'Unknown'} ${o.unit}`],['Held',`${o.held_quantity} ${o.unit}`],['Available to claim',`${o.claimable_quantity} ${o.unit}`],['Location',locationText(o)]]));
       actions.append(button('Details & evidence',()=>offerDetails(o)));
-      if(claimable(o,api.now())&&!state.error&&api.health?.capabilities.claims)actions.append(button('Request a hold',()=>claimForm(o),'primary'));
+      if(claimable(o,api.now(),state.offerClass)&&!state.error&&api.health?.capabilities.claims)actions.append(button('Request a hold',()=>claimForm(o),'primary'));
       actions.append(button('I want this',()=>demandForm(o)));card.append(actions);cards.append(card);
     }
   }list();
@@ -126,47 +135,31 @@ function claimForm(o){
   qty.input.inputMode='decimal';
   content.append(el('p',`${o.food_name} · ${priceText(o.price,o.unit)}`),el('p','A request is not a reservation. Wait for an accepted hold before travelling.'),qty.label,start.label,end.label,expires.label,button('Send request',async()=>{
     quantity(qty.input.value,o.unit);const fresh=await api.page('integrity_offers_v1',{food_id:o.food_id,source_id:o.source_id});const current=fresh.data.items.find(x=>x.id===o.id);
-    if(!current||current.revision!==o.revision||!claimable(current,api.now()))throw Error('This offer changed. Close this form and review its current terms.');
+    if(!current||current.revision!==o.revision||!claimable(current,api.now(),state.offerClass))throw Error('This offer changed. Close this form and review its current terms.');
     const result=await command('integrity_request_claim_v1',{offer_id:o.id,expected_revision:o.revision,quantity:qty.input.value,collection_start:iso(start.input.value),collection_end:iso(end.input.value),request_expires_at:iso(expires.input.value)},o.source_id);
     if(result){closeModal();state.view='My holds';await reconciler.run();message('Request acknowledged · awaiting Source acceptance.');}
   },'primary'));modal('Request a hold',content);
 }
-function demandForm(o){
-  if(!state.session)rememberIntent('demand',o);if(!requireAuth())return;
-  if(!api.health?.capabilities.demand_capture){message('Private interest capture is currently unavailable.');return;}
-  if(!CONFIG.areas.length){modal('Choose your area',empty('Area selection is not available yet','The staging area directory has not been supplied. No location or interest has been submitted.'));return;}
-  const content=el('div'),area=select('Your area',[['','Select your area'],...CONFIG.areas.map(a=>[a.id,a.name])]),confirm=check('I confirm this is the area where I want to collect food.'),qty=field(`Quantity (${o.unit})`,'1'),cadence=select('How often?',['once','daily','weekly','fortnightly','monthly'],'weekly'),expiry=field('Reconfirm by (your local time)','','datetime-local');
-  content.append(area.label,confirm.label,qty.label,cadence.label,expiry.label,el('p','This expresses private interest. It is not an order or a verified household count.'),button('Save my interest',async()=>{
-    if(!confirm.input.checked||!area.input.value)throw Error('Select and explicitly confirm your area.');quantity(qty.input.value,o.unit);
-    const d=await command('integrity_save_demand_v1',{food_id:o.food_id,area_id:area.input.value,area_confirmed:true,quantity:qty.input.value,unit:o.unit,cadence:cadence.input.value,expires_at:iso(expiry.input.value)});
-    if(d){closeModal();message('Private interest saved. No general demand summary is published.');}
-  },'primary'));modal('I want '+o.food_name,content);
-}
-async function interest(root){
-  const g=state.generation,user=state.session.user.id;
-  root.append(el('h2','My interest'),el('p','Acknowledged interest from this device. Cross-device listing is not available in this contract.'));
-  const rows=await store.list('outbox',user);if(!guard(g))return;
-  for(const row of rows.filter(r=>r.name==='integrity_save_demand_v1'&&r.status==='published')){const d=row.result.data,c=el('article',null,{class:'card'});c.append(facts([['Food reference',d.food_id],['Area',d.area_id],['Quantity',`${d.quantity} ${d.unit}`],['Cadence',d.cadence],['Expires',time(d.expires_at)]]),button('Cancel interest',()=>command('integrity_cancel_demand_v1',{demand_id:d.id})));root.append(c);}
-}
+function demandForm(o){if(!state.session)rememberIntent('demand',o);if(!requireAuth())return;return demandDialog(o,ctx);}
 async function renderClaims(root){
   root.append(el('h2',source?'Claims inbox':'My holds'));
   if(source&&!state.sourceId){root.append(empty('Select a Source first','Open Today to select an available Source.'));return;}
-  if(source)root.append(el('p','This draft API pages all claims by UUID. An actionable-first inbox still requires backend support.',{class:'muted'}));
+  if(source){const filter=select('Claims to show',['actionable','all','requested','accepted','declined','cancelled','expired','collected','source_unfulfillable'],state.inboxFilter);filter.input.addEventListener('change',()=>{state.inboxFilter=filter.input.value;state.cursor=null;reconciler.run();});root.append(filter.label);}
   if(!state.claims.length)root.append(empty('No claims on this page','Holds are queried independently of public listings, including expired or fully held offers.'));
   for(const c of state.claims){const card=el('article',null,{class:'card'}),t=c.terms,active=['accepted','requested'].includes(c.status);
     card.append(el('h3',`${t.quantity} ${t.unit} · ${c.status.replaceAll('_',' ')}`),el('p',priceText(t.price,t.unit)),facts([['Collection reference',c.collection_reference],['Collection from',time(t.collection_start)],['Collection until',time(t.collection_end)],['Hold until',time(t.hold_until)],['Request expires',time(t.requested_until)],['Source reference',c.source_id]]));
     if(c.status==='requested')card.append(el('p','Awaiting acceptance. Do not travel on this request.'));
-    card.append(el('p','Source contact instructions are not available through the current claims response.',{class:'muted'}));
+    card.append(button('Food, Source & collection details',()=>claimDetails(c,ctx)));
     if(!source&&active)card.append(button('Cancel',()=>command('integrity_cancel_claim_v1',{claim_id:c.id,expected_claim_revision:c.revision,reason:null},c.source_id)));
-    if(source&&active){const actions=el('div',null,{class:'actions'});
+    if(source&&active&&state.memberships.some(m=>m.source_id===c.source_id&&m.role!=='viewer')){const actions=el('div',null,{class:'actions'});
       if(c.status==='requested')actions.append(button('Accept',()=>claimAction(c,true)),button('Decline',()=>claimAction(c,false)));
       if(c.status==='accepted')actions.append(button('Mark fully collected',()=>collect(c)));
       actions.append(button('Cannot fulfil',()=>reasonForm('Cannot fulfil this hold',reason=>command('integrity_source_cancel_claim_v1',{source_id:c.source_id,claim_id:c.id,expected_claim_revision:c.revision,reason},c.source_id))));card.append(actions);
     }root.append(card);
   }
-  if(state.cursor)root.append(button('Next claims',async()=>{const g=state.generation,r=await api.page(source?'integrity_source_claims_v1':'integrity_my_claims_v1',source?{source_id:state.sourceId}:{},state.cursor);if(!guard(g))return;state.claims=r.data.items;state.cursor=r.data.next_cursor;render();}));
+  if(state.cursor)root.append(button('Next claims',async()=>{const g=state.generation;let r;try{r=await api.page(source?'integrity_source_claims_inbox_v1':'integrity_my_claims_v1',source?{source_id:state.sourceId,filter:state.inboxFilter}:{},state.cursor);}catch(e){if(e.code==='INVALID_CURSOR'){state.cursor=null;await reconciler.run();message('The inbox changed. Showing the first page again.');return;}throw e;}if(!guard(g))return;state.claims=r.data.items;state.cursor=r.data.next_cursor;render();}));
 }
-async function currentOfferForClaim(c){const r=await api.page('integrity_catalogue_v1',{source_id:c.source_id});const o=r.data.items.find(x=>x.id===c.terms.offer_id);if(!o)throw Error('Offer is outside the current catalogue page. A direct member offer read is required.');return o;}
+async function currentOfferForClaim(c){return (await api.rpc('integrity_member_offer_v1',{source_id:c.source_id,offer_id:c.terms.offer_id,lot_id:null})).data;}
 async function claimAction(c,accept){const o=await currentOfferForClaim(c);const content=el('div'),hold=field('Hold until (your local time)','','datetime-local'),reason=field('Reason (optional)');content.append(el('p',`${accept?'Accept':'Decline'} ${c.terms.quantity} ${c.terms.unit}. Current offer revision ${o.revision}.`));if(accept)content.append(hold.label);content.append(reason.label,button('Confirm',async()=>{const d=await command('integrity_respond_claim_v1',{source_id:c.source_id,claim_id:c.id,expected_offer_revision:o.revision,expected_claim_revision:c.revision,accept,hold_until:accept?iso(hold.input.value):null,reason:reason.input.value||null},c.source_id);if(d)closeModal();},'primary'));modal(accept?'Accept request':'Decline request',content);}
 async function collect(c){const o=await currentOfferForClaim(c),content=el('div');content.append(el('p',`Confirm physical collection of all ${c.terms.quantity} ${c.terms.unit}. Partial collection is unavailable.`),button('Confirm collection',async()=>{const d=await command('integrity_collect_claim_v1',{source_id:c.source_id,claim_id:c.id,expected_offer_revision:o.revision,expected_claim_revision:c.revision,quantity:c.terms.quantity},c.source_id);if(d){closeModal();message(`Collection acknowledged. Server physical stock: ${d.offer.physical_quantity} ${d.offer.unit}.`);}},'primary'));modal('Complete collection',content);}
 async function notices(root){
@@ -202,8 +195,8 @@ function authDialog(){
   content.append(el('p','Controlled staging test access only. Public signup and external email delivery are not enabled.'),email.label,password.label,button('Sign in',async()=>{const {error}=await sb.auth.signInWithPassword({email:email.input.value,password:password.input.value});password.input.value='';if(error)throw Error('Sign-in failed. Check the approved test account.');closeModal();},'primary'));modal('Staging sign-in',content);
 }
 function sessionChanged(session){
-  const changed=state.session?.user.id!==session?.user.id;state.session=session;
-  if(changed){state.generation++;state.claims=[];state.notices=[];state.sourceId=null;state.cursor=null;closeModal();sourceCleanup();$('#workspace').replaceChildren();}
+  const changed=state.session?.user.id!==session?.user.id;state.session=session;if(session)state.authError=null;
+  if(changed){state.generation++;state.claims=[];state.notices=[];state.demand=[];state.reviews=[];state.memberships=[];state.sourceId=null;state.cursor=null;closeModal();sourceCleanup();$('#workspace').replaceChildren();}
   if(changed&&!session){try{sessionStorage.removeItem(intentKey);}catch{}}
   connection();setTimeout(()=>reconciler.run(),0);
 }
@@ -219,8 +212,8 @@ async function boot(){
     const url=new URL(location.href),code=url.searchParams.get('code'),authError=url.searchParams.get('error_description');
     if(code||url.hash.includes('access_token')||authError){
       const clean=new URL('./',location.href);if(url.searchParams.has('source'))clean.searchParams.set('source',url.searchParams.get('source'));history.replaceState(null,'',clean);
-      if(code){const {error}=await sb.auth.exchangeCodeForSession(code);if(error)message('This sign-in link expired or was opened in another browser. Return to the initiating browser or sign in again.',true);}
-      else message('This authentication link cannot be used here. Sign in again in this browser.',true);
+      if(code){const {error}=await sb.auth.exchangeCodeForSession(code);if(error)state.authError='This sign-in link expired or was opened in another browser. Return to the initiating browser or sign in again.';}
+      else state.authError='This authentication link cannot be used here. Sign in again in this browser.';
     }
     const {data:{session}}=await sb.auth.getSession();sessionChanged(session);
     channel=sb.channel(`integrity-${CONFIG.app}`).on('postgres_changes',{event:'INSERT',schema:'public',table:'integrity_change'},()=>reconciler.hint()).subscribe();

@@ -1,3 +1,5 @@
+> September 10 update: see [revised integration status](INTEGRATION_20260910.md). Earlier checkpoint statements below are historical; full acceptance remains open.
+
 # Required frontend contract additions / clarifications
 
 These are findings from the exact 44-operation `staging-20260908.3` JSON contract, not requests to reopen raw tables. No signatures are proposed as though deployed.

@@ -19,5 +19,5 @@ const hash=createHash('sha256');hash.update(fs.readFileSync('scripts/service-wor
 const revision=hash.digest('hex').slice(0,20);
 let sw=fs.readFileSync('scripts/service-worker.template.js','utf8').replace('__APP__',app).replace('__REVISION__',revision).replace('__SHELL__',JSON.stringify(shell));
 fs.writeFileSync('dist/service-worker.js',sw);
-fs.writeFileSync('dist/release.json',JSON.stringify({app,version:pkg.version,revision,environment:'staging',production_ready:false,contract_sha256:'709f13cff71043d52344f03e6dcb04e2db1cdb99efeb0abfed0064bebbe06726',assets:shell},null,2)+'\n');
+fs.writeFileSync('dist/release.json',JSON.stringify({app,version:pkg.version,revision,environment:'staging',production_ready:false,contract_revision:'staging-20260910.1',contract_sha256:'f527526d4598ca119f6d31ccaa17f999d135664a46025b90a7f92ca2b98bccad',assets:shell},null,2)+'\n');
 console.log(`Built ${app} staging shell ${revision}; ${shell.length} complete pinned assets.`);

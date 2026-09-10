@@ -1,3 +1,5 @@
+> September 10 update: see [revised integration status](INTEGRATION_20260910.md). Earlier checkpoint statements below are historical; full acceptance remains open.
+
 # Staging build and later hosting
 
 ## Build

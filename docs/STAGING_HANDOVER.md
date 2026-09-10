@@ -1,3 +1,5 @@
+> September 10 update: see [revised integration status](INTEGRATION_20260910.md). Earlier checkpoint statements below are historical; full acceptance remains open.
+
 # Provision integrity staging checkpoint — 8 September 2026
 
 **Decision: NOT READY for release. Job 2 is incomplete.**

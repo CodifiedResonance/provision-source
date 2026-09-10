@@ -7,6 +7,7 @@ export class PrivateStore {
   put(store,user,source,id,value){return this.transaction(store,'readwrite',s=>s.put({...value,key:this.key(user,source,id),user,source:source||null,id}));}
   remove(store,user,source,id){return this.transaction(store,'readwrite',s=>s.delete(this.key(user,source,id)));}
   async list(store,user,source){if(!user)return [];const rows=await this.transaction(store,'readonly',s=>s.getAll());return rows.filter(r=>r.user===user&&(source===undefined||r.source===(source||null)));}
+  async clearServer(user,source){for(const row of await this.list('server',user,source))await this.remove('server',user,row.source,row.id);}
   async saveDraft(user,source,id,value,expectedLocalVersion){
     const db=await this.open(),key=this.key(user,source,id);
     return new Promise((resolve,reject)=>{const tx=db.transaction('drafts','readwrite'),s=tx.objectStore('drafts');let saved;const r=s.get(key);
