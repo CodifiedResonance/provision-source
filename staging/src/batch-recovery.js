@@ -27,7 +27,7 @@ export async function recoverBatchDraft(store,outbox,d,{user,source,guard=()=>tr
   }
   return {draft:d};
 }
-export async function continueBatchPublication(store,outbox,d,{user,source,guard=()=>true,onCreated=()=>{}}={}){
+export async function continueBatchPublication(store,outbox,d,{user,source,guard=()=>true,onCreated=()=>{},allowCorrection=false}={}){
   const recovered=await recoverBatchDraft(store,outbox,d,{user,source,guard});
   d=recovered.draft;if(!d)return recovered.result;
   if(!d.lotId){
@@ -40,7 +40,10 @@ export async function continueBatchPublication(store,outbox,d,{user,source,guard
   check(outbox,user,guard);await onCreated(d);
   let publish=await store.get('outbox',user,source,d.publishId);
   if(!publish)publish=await outbox.prepare(user,source,'integrity_publish_v2',publicationPayload(d,source),d.publishId);
+  if(publish&&allowCorrection&&!sameValue(JSON.parse(publish.payload),{...publicationPayload(d,source),operation_id:d.publishId}))publish=await outbox.amendRejectedPublication(publish,publicationPayload(d,source));
+  if(publish.status==='published')assertAcknowledgedForm(d,publish,source);
   const result=await outbox.send(publish,{reviewed:true});check(outbox,user,guard);
+  assertAcknowledgedForm(d,await store.get('outbox',user,source,d.publishId),source);
   await store.acknowledgeDraft(user,source,d.id,d.publishId,d.localVersion);
   return result;
 }

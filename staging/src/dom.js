@@ -1,6 +1,6 @@
 export const $=s=>document.querySelector(s);
 export function el(tag,text,attrs={}){const n=document.createElement(tag);if(text!==null&&text!==undefined)n.textContent=String(text);for(const [k,v]of Object.entries(attrs))if(v!==null&&v!==undefined)n.setAttribute(k,String(v));return n;}
-export function button(text,action,kind=''){const b=el('button',text,{type:'button',class:kind});b.addEventListener('click',async()=>{b.disabled=true;if(b.nextElementSibling?.classList.contains('action-error'))b.nextElementSibling.remove();try{await action(b);}catch(e){actionError(b,e.message);}finally{b.disabled=false;}});return b;}
+export function button(text,action,kind=''){const b=el('button',text,{type:'button',class:kind});b.addEventListener('click',async()=>{b.disabled=true;if(b.nextElementSibling?.classList.contains('action-error'))b.nextElementSibling.remove();try{await action(b);}catch(e){if(!e.fieldDirected)actionError(b,e.message);}finally{b.disabled=false;}});return b;}
 export function actionError(action,text){
   const dialog=$('#dialog');
   if(dialog?.open){const host=action?.isConnected&&dialog.contains(action)?action:$('#dialogBody');let n=host.nextElementSibling;
@@ -9,9 +9,9 @@ export function actionError(action,text){
   }
   message(text,true);
 }
-export function fieldError(field,text){
+export function fieldError(field,text,{throwError=true}={}){
   let n=field.label.querySelector('.field-error');if(!n){n=el('p',null,{class:'error field-error',role:'alert',id:'error-'+crypto.randomUUID()});field.label.append(n);}
-  n.textContent=text;field.input.addEventListener('input',()=>{n.remove();field.input.removeAttribute('aria-invalid');field.input.removeAttribute('aria-describedby');},{once:true});field.input.setAttribute('aria-invalid','true');field.input.setAttribute('aria-describedby',n.id);field.input.focus();throw Error(text);
+  n.textContent=text;field.input.addEventListener('input',()=>{n.remove();field.input.removeAttribute('aria-invalid');field.input.removeAttribute('aria-describedby');},{once:true});field.input.setAttribute('aria-invalid','true');field.input.setAttribute('aria-describedby',n.id);for(let parent=field.input.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;field.input.focus({preventScroll:true});field.label.scrollIntoView({block:'center',behavior:'smooth'});if(throwError){const error=Error(text);error.fieldDirected=true;throw error;}
 }
 export function message(text,error=false){const n=$('#message');n.hidden=!text;n.textContent=text;n.classList.toggle('error',error);}
 export function field(name,value='',type='text'){const label=el('label',name),input=el(type==='textarea'?'textarea':'input');if(type!=='textarea')input.type=type;input.value=value??'';label.append(input);return {label,input};}

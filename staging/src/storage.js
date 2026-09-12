@@ -1,3 +1,5 @@
+const correctableCodes=new Set(['INVALID_PRICE','INVALID_PRICE_BASIS','INVALID_REQUEST','INVALID_EXPIRY','INVALID_COLLECTION_WINDOW','NOT_RESERVABLE']);
+export const publicationEditable=row=>!row||(!row.attempted&&row.status==='saved')||(row.safeToRetry&&row.rejection?.payload===row.payload&&correctableCodes.has(row.rejection.code));
 export class PrivateStore {
   constructor(app,dbFactory=indexedDB){this.name=`provision:${app}:staging:1`;this.factory=dbFactory;}
   async open(){if(this.db)return this.db;this.db=await new Promise((resolve,reject)=>{const r=this.factory.open(this.name,1);r.onupgradeneeded=()=>{for(const n of ['server','drafts','outbox','files'])r.result.createObjectStore(n,{keyPath:'key'});};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(Error('Could not save safely on this device.'));r.onblocked=()=>reject(Error('Close another Provision tab to update device storage.'));});this.db.onversionchange=()=>{this.db.close();this.db=null;};return this.db;}
@@ -55,6 +57,7 @@ export class Outbox {
   }
   async reconcileLocked(row){
     this.checkIdentity(row);
+    if(correctableCodes.has(row.error))row.rejection={code:row.error,payload:row.payload};
     if(row.status==='published')return row;
     try{
       const response=await this.api.rpc('integrity_operation_v1',{operation_id:row.id,action:row.name,source_id:row.source});
@@ -79,6 +82,23 @@ export class Outbox {
       row.safeToRetry=false;row.reconciliationError=e.code||e.message;
       await this.store.put('outbox',row.user,row.source,row.id,row);throw e;
     }
+  }
+  async amendRejectedPublication(row,payload){
+    if(!this.lock)throw Error('This browser cannot safely coordinate saved work.');
+    return this.lock.request(`${this.store.name}:${row.key}`,async()=>{
+      let current=await this.store.get('outbox',row.user,row.source,row.id);this.checkIdentity(current);
+      if(current.payload!==row.payload)throw Error('This publication changed in another tab. Reopen your retained draft.');
+      if(!['integrity_publish_v1','integrity_publish_v2'].includes(current.name))throw Error('Only a rejected publication can be corrected here.');
+      current=await this.reconcileLocked(current);
+      if(current.status==='published')return current;
+      if(!current.safeToRetry||!publicationEditable(current))throw Error('The original publication is still uncertain. Your edits are saved; check its acknowledgement before changing the request.');
+      const original=JSON.parse(current.payload),corrected={...payload,operation_id:current.id};
+      for(const key of ['source_id','lot_id','expected_revision'])if(original[key]!==corrected[key])throw Error('A correction must keep the same batch and revision.');
+      this.api.validate(current.name,'request',corrected);
+      current.corrections=[...(current.corrections||[]),{payload:current.payload,rejection:current.rejection||null,absenceCheckedAt:current.reconciledAt}];
+      current.payload=JSON.stringify(corrected);current.attempted=false;current.status='saved';current.error=null;current.rejection=null;
+      await this.store.put('outbox',current.user,current.source,current.id,current);return current;
+    });
   }
   async send(row,{reviewed=false}={}){
     if(!this.lock)throw Error('This browser cannot safely coordinate publication across tabs. Use a supported browser.');

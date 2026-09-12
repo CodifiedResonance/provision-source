@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {indexedDB} from 'fake-indexeddb';
-import {PrivateStore,Outbox} from '../staging/src/storage.js';
+import {PrivateStore,Outbox,publicationEditable} from '../staging/src/storage.js';
 import {ApiError} from '../staging/src/api.js';
 import {continueBatchPublication,recoverBatchDraft,publicationPayload} from '../staging/src/batch-recovery.js';
 const user='test-owner',source='11111111-1111-4111-8111-111111111111',lot='22222222-2222-4222-8222-222222222222',offer='33333333-3333-4333-8333-333333333333';
@@ -74,4 +74,38 @@ test('a newer tab draft is retained even after publication acknowledgement',asyn
 test('two simultaneous continuation taps still produce one batch and one publication',async()=>{
  const f=await fixture();const attempts=await Promise.allSettled([continueBatchPublication(f.store,f.outbox,f.draft,options),continueBatchPublication(f.store,f.outbox,f.draft,options)]);
  assert.ok(attempts.some(r=>r.status==='fulfilled'));assert.deepEqual(f.counts(),{lots:1,publications:1});assert.equal(await f.store.get('drafts',user,source,f.draft.id),undefined);
+});
+
+async function rejectedFixture(code='INVALID_PRICE'){
+ const f=await fixture();await create(f);const d=await f.store.saveDraft(user,source,f.draft.id,{...f.draft,lotId:lot},f.draft.localVersion);
+ const row=await f.outbox.prepare(user,source,'integrity_publish_v2',publicationPayload(d,source),publishId);
+ await f.store.put('outbox',user,source,publishId,{...row,status:'attention',attempted:true,error:code});
+ return {...f,d,row};
+}
+test('rejected price can be corrected only after exact absence check, retaining batch and operation IDs',async()=>{
+ const f=await rejectedFixture();const checked=await f.outbox.reconcile(f.row);assert.equal(publicationEditable(checked),true);
+ const corrected=await f.store.saveDraft(user,source,f.d.id,{...f.d,form:{...f.d.form,price:{status:'priced',amount:'2.50',currency:'GBP',basis:'per_kg',bundle_quantity:null,package_quantity:null,package_unit:null}}},f.d.localVersion);
+ const rpc=f.api.rpc.bind(f.api);f.api.rpc=async(n,p)=>{if(n==='integrity_publish_v2'){assert.ok(await f.store.get('drafts',user,source,f.d.id));assert.equal(p.price.amount,'2.50');assert.equal(p.operation_id,publishId);}return rpc(n,p);};
+ await continueBatchPublication(f.store,f.outbox,corrected,{...options,allowCorrection:true});
+ assert.deepEqual(f.counts(),{lots:1,publications:1});const row=await f.store.get('outbox',user,source,publishId);assert.equal(row.corrections[0].payload,f.row.payload);assert.equal(row.corrections[0].rejection.code,'INVALID_PRICE');assert.ok(row.corrections[0].absenceCheckedAt);assert.equal(await f.store.get('drafts',user,source,f.d.id),undefined);
+});
+test('uncertain publication cannot be amended even when a lookup currently returns absent',async()=>{
+ const f=await rejectedFixture('CONNECTION_UNCONFIRMED');const checked=await f.outbox.reconcile(f.row);assert.equal(publicationEditable(checked),false);
+ await assert.rejects(f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),physical_quantity:'15'}),/still uncertain/);assert.equal((await f.store.get('outbox',user,source,publishId)).payload,f.row.payload);assert.deepEqual(f.counts(),{lots:1,publications:0});
+});
+test('correction rechecks absence under the operation lock and rejects a failed lookup',async()=>{
+ const f=await rejectedFixture();const checked=await f.outbox.reconcile(f.row);f.lookupError(new ApiError('FORBIDDEN',403));
+ await assert.rejects(f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),physical_quantity:'15'}),/FORBIDDEN/);assert.equal((await f.store.get('outbox',user,source,publishId)).payload,f.row.payload);
+});
+test('correction adopts an intervening commit without replacing its payload or losing newer edits',async()=>{
+ const f=await rejectedFixture();const checked=await f.outbox.reconcile(f.row);await f.api.rpc('integrity_publish_v2',JSON.parse(f.row.payload));
+ const adopted=await f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),physical_quantity:'15'});assert.equal(adopted.status,'published');assert.equal(adopted.payload,f.row.payload);assert.deepEqual(f.counts(),{lots:1,publications:1});
+ const corrected=await f.store.saveDraft(user,source,f.d.id,{...f.d,form:{...f.d.form,quantity:'15'}},f.d.localVersion);
+ await assert.rejects(continueBatchPublication(f.store,f.outbox,corrected,{...options,allowCorrection:true}),/newer edits/);assert.equal((await f.store.get('drafts',user,source,f.d.id)).form.quantity,'15');
+});
+test('correction rejects stale-tab payload and changing the batch or revision',async()=>{
+ const f=await rejectedFixture();const checked=await f.outbox.reconcile(f.row);
+ await assert.rejects(f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),lot_id:'different'}),/same batch/);
+ await f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),physical_quantity:'15'});
+ await assert.rejects(f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),physical_quantity:'10'}),/another tab/);
 });
