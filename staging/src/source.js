@@ -1,8 +1,9 @@
+import {batchIncomplete,recoverBatchDraft,continueBatchPublication,publicationPayload} from './batch-recovery.js';
 import {offerForm,mergePlan} from './draft-merge.js';
 import {memberExport} from './member-data.js';
 import {profileForm,physicalDatesForm} from './member-forms.js';
 import {time,priceText,quantity,emptyDates,UNITS,expired} from './domain.js';
-import {el,button,field,select,check,modal,closeModal,message,empty,facts} from './dom.js';
+import {el,button,field,select,check,modal,closeModal,message,empty,facts,fieldError} from './dom.js';
 export function resumeSourceDraft(draft,ctx){if(!ctx.state.memberships.some(m=>m.source_id===draft.source&&m.role!=='viewer'))throw Error('Current editing membership is required to resume this Source draft.');ctx.state.sourceId=draft.source;ctx.state.generation++;return edit(null,ctx,false,draft);}
 export async function sourceScreen(root,ctx){
   const {state,CONFIG,api,store}=ctx,g=state.generation,user=state.session?.user.id;
@@ -28,7 +29,7 @@ export async function sourceScreen(root,ctx){
     if(saved&&saved.baseRevision!==o.revision)c.append(el('p','Server revision changed. Review both versions before publishing.',{class:'error'}));
     if(canEdit)actions.append(button(saved?'Resume draft':'Change',()=>edit(o,ctx)),button('Same batch · reconfirm',()=>reconfirm(o,ctx)),button('New batch',()=>edit(o,ctx,true)),button('Sold out',()=>countZero(o,ctx)),button('Retire',()=>reason('Retire this offer',async r=>ctx.command('integrity_withdraw_v1',{source_id:sourceId,offer_id:o.id,expected_revision:o.revision,reason:r},sourceId))),button('Correct physical dates',()=>physicalDatesForm(o,ctx)),button('Evidence',()=>evidenceForm(o,ctx)));c.append(actions);cards.append(c);
   }
-  for(const d of drafts.filter(d=>!offers.some(o=>o.lot_id===d.id))){const c=el('article',null,{class:'card'});c.append(el('h2',d.foodName||'Unpublished batch'),el('p','Saved on this device'),canEdit?button('Resume draft',()=>edit(null,ctx,false,d)):el('p','Editing requires an owner, admin or editor role'));cards.append(c);}
+  for(const d of drafts.filter(d=>!offers.some(o=>o.lot_id===d.id))){const c=el('article',null,{class:'card'});c.append(el('h2',d.foodName||'Unpublished batch'),el('p',batchIncomplete(d)?'Batch created · publication not completed':'Saved on this device'),el('p','Your draft is safe.'),canEdit?button(batchIncomplete(d)?'Continue publication':'Resume draft',()=>edit(null,ctx,false,d)):el('p','Editing requires an owner, admin or editor role'));cards.append(c);}
   if(!offers.length&&!drafts.length)cards.append(empty('No catalogue items on this page','Expired batches remain manageable when returned by the member catalogue.'));
   }
   renderCards();
@@ -48,6 +49,7 @@ function iso(value){if(!value)return null;const d=new Date(value);if(Number.isNa
 async function edit(offer,ctx,newBatch=false,resume=null){
   const {state,store,api,CONFIG}=ctx,user=state.session.user.id,source=state.sourceId,g=state.generation;
   if(!state.memberships.some(m=>m.source_id===source&&m.role!=='viewer'))throw Error('Current editing membership is required.');
+  if(resume){const recovered=await recoverBatchDraft(store,ctx.outbox,resume,{user,source,guard:()=>ctx.guard(g)});if(!recovered.draft){closeModal();await ctx.refresh();message('Published · server acknowledgement recovered.');return;}resume=recovered.draft;}
   if(!newBatch&&(offer||resume?.lotId)){try{offer=(await api.rpc('integrity_member_offer_v1',{source_id:source,offer_id:offer?.id||null,lot_id:offer?null:resume.lotId})).data;}catch(e){if(!(resume&&!offer&&e.code==='NOT_FOUND'&&resume.baseRevision===0))throw e;}}
   if(!ctx.guard(g))return;
   if(offer&&!offer.lot_id&&!newBatch){message('This legacy offer needs owner/admin activation and reviewed historical claims before publication.');return;}
@@ -56,6 +58,8 @@ async function edit(offer,ctx,newBatch=false,resume=null){
   if(!ctx.guard(g))return;
   const initial=draft?.form||{foodId:offer?.food_id||'',unit:offer?.unit||'each',quantity:offer?.physical_quantity||'',price:offer?.price||{status:'unknown',amount:null,currency:'GBP',basis:null,bundle_quantity:null,package_quantity:null,package_unit:null},lifecycle:offer?.lifecycle==='retired'?'ready':offer?.lifecycle||'ready',pressure:offer?.pressure||'normal',visibility:offer?.visibility||'public',reservable:offer?.reservable||false,listingExpiresAt:null,collectionStart:offer?.collection_start||null,collectionEnd:offer?.collection_end||null,note:offer?.note||'',noteTouched:false,dates:newBatch?emptyDates():offer?.physical_dates||emptyDates()};
   draft=draft||{localVersion:0,baseRevision:offer&&!newBatch?offer.revision:0,lotId:offer&&!newBatch?offer.lot_id:null,foodName:offer?.food_name||'',createId:crypto.randomUUID(),publishId:crypto.randomUUID(),baseForm:offer&&!newBatch?offerForm(offer):null,form:initial};
+  const pendingPublish=await store.get('outbox',user,source,draft.publishId);
+  if(pendingPublish){const p=JSON.parse(pendingPublish.payload);Object.assign(initial,{quantity:p.physical_quantity,price:p.price,lifecycle:p.lifecycle,pressure:p.pressure,visibility:p.visibility,reservable:p.reservable,listingExpiresAt:p.listing_expires_at,collectionStart:p.collection_start,collectionEnd:p.collection_end,...('note' in p?{note:p.note||'',noteTouched:true}:{})});}
   const box=el('div'),form=el('div',null,{class:'form-grid'}),foods=[...state.foods];if(offer&&!foods.some(f=>f.id===offer.food_id))foods.push({id:offer.food_id,name:offer.food_name});
   const food=select('Food',[['','Choose a food'],...foods.map(f=>[f.id,f.name])],initial.foodId),unit=select('How is this counted?',foods.find(f=>f.id===initial.foodId)?.units?.map(u=>[u.unit,u.unit])||[[initial.unit,initial.unit]],initial.unit),qty=field('Physical quantity',initial.quantity),status=select('Price',['unknown','free','priced'].map(x=>[x,x==='unknown'?'Price not supplied':x==='free'?'Free':'Set price']),initial.price.status),amount=field('Amount (£)',initial.price.amount||''),basis=select('Price basis',[['per_unit','Per counted unit'],['per_kg','Per kg'],['per_litre','Per litre'],['per_lot','Per whole batch'],['bundle','Bundle']],initial.price.basis||'per_unit'),bundle=field('Units in the bundle',initial.price.bundle_quantity||''),pack=field('Package quantity (optional)',initial.price.package_quantity||''),packUnit=select('Package unit',[['','Unknown'],...UNITS],initial.price.package_unit||''),lifecycle=select('Physical stage',[['ready','Ready'],['growing','Growing'],['at_sea','At sea']],initial.lifecycle),pressure=select('Availability pressure',[['normal','Normal'],['surplus','Surplus'],['needs_moving','Needs moving']],initial.pressure),visibility=select('Visibility',[['public','Public'],['members','Source members']],initial.visibility),reservable=check('Allow hold requests',initial.reservable),expires=dateField('Declaration expires (your local time)',initial.listingExpiresAt),start=dateField('Collection from (your local time)',initial.collectionStart),end=dateField('Collection until (your local time)',initial.collectionEnd),note=field('Note',initial.note,'textarea');
   const saved=el('p','Changes have not yet been saved.'),preview=el('p',null,{class:'price'}),fields=[food,unit,qty,status,amount,basis,bundle,pack,packUnit,lifecycle,pressure,visibility,expires,start,end,note];
@@ -68,20 +72,36 @@ async function edit(offer,ctx,newBatch=false,resume=null){
   let noteTouched=initial.noteTouched||false;note.input.addEventListener('input',()=>{noteTouched=true;});
   function snapshot(){return {foodId:food.input.value,unit:unit.input.value,quantity:qty.input.value,price:{status:status.input.value,amount:status.input.value==='priced'?amount.input.value:status.input.value==='free'?'0':null,currency:'GBP',basis:status.input.value==='priced'?basis.input.value:null,bundle_quantity:status.input.value==='priced'&&basis.input.value==='bundle'?bundle.input.value:null,package_quantity:pack.input.value||null,package_unit:packUnit.input.value||null},lifecycle:lifecycle.input.value,pressure:pressure.input.value,visibility:visibility.input.value,reservable:reservable.input.checked,listingExpiresAt:iso(expires.input.value),collectionStart:iso(start.input.value),collectionEnd:iso(end.input.value),note:note.input.value,noteTouched,dates:draft.lotId?initial.dates:{...initial.dates,...Object.fromEntries(Object.entries(dateInputs).map(([k,f])=>[k,iso(f.input.value)])),handling:handling.input.value||null,allergen_information:allergens.input.value||null}};}
   let saving=Promise.resolve(),closed=false,saveFailed=false;
-  function save(){const value=snapshot();saving=saving.then(async()=>{if(!ctx.guard(g))return;draft=await store.saveDraft(user,source,id,{...draft,form:value,foodName:foods.find(f=>f.id===value.foodId)?.name||draft.foodName},draft.localVersion);saveFailed=false;if(!closed)saved.textContent='Saved on this device';}).catch(e=>{saveFailed=true;if(!closed)saved.textContent=e.message;});return saving;}
+  function save(){if(pendingPublish)return saving;const value=snapshot();saving=saving.then(async()=>{if(!ctx.guard(g))return;draft=await store.saveDraft(user,source,id,{...draft,form:value,foodName:foods.find(f=>f.id===value.foodId)?.name||draft.foodName},draft.localVersion);saveFailed=false;if(!closed)saved.textContent='Saved on this device';}).catch(e=>{saveFailed=true;if(!closed)saved.textContent=e.message;});return saving;}
   function change(){try{const f=snapshot();preview.textContent=`${f.quantity||'?'} ${draft.foodName||'food'} · ${priceText(f.price,f.unit)} · ${f.pressure}`;}catch{preview.textContent='Complete the price and quantity for a preview.';}saved.textContent='Saving on this device…';save();}
   form.addEventListener('input',change);dates.addEventListener('input',change);food.input.addEventListener('change',()=>{if(!draft.lotId){const selected=foods.find(f=>f.id===food.input.value);unit.input.replaceChildren(...(selected?.units||[]).map(u=>el('option',u.unit,{value:u.unit})));unit.input.value=selected?.default_unit||'';qty.input.step=selected?.units.find(u=>u.unit===unit.input.value)?.increment||'1';change();}});
   if(offer&&!newBatch&&draft.baseRevision!==offer.revision){box.append(el('p','Conflict: the Source changed after this draft was saved. Publishing is blocked until you review the new stock and terms.',{class:'error'}),button('Compare & merge with current record',async()=>{await save();await saving;if(saveFailed)return;await mergeDraft(draft,ctx);}));}
-  box.append(button('Save on this device',save),button('Review & publish',async()=>{
+  const recovery=el('div',null,{class:'batch-recovery'});
+  if(batchIncomplete(draft)){recovery.append(el('h3','Batch created · publication not completed'),el('p','Your draft is safe.'));box.prepend(recovery);}
+  if(pendingPublish){for(const input of box.querySelectorAll('input,select,textarea'))input.disabled=true;box.append(el('p','Continuing uses the original saved publication terms. Check its acknowledgement before changing them.'));}
+  box.append(button('Save on this device',save),button(batchIncomplete(draft)?'Continue publication':'Review & publish',async()=>{
     await save();await saving;if(saveFailed)throw Error('Device save failed. Publication was not started.');if(!ctx.guard(g))return;
-    const f=draft.form;quantity(f.quantity,f.unit);if(!f.foodId||!f.listingExpiresAt)throw Error('Choose a food and declaration expiry.');if(Date.parse(f.listingExpiresAt)<=api.now())throw Error('Choose a future declaration expiry.');
+    const f=draft.form;
+    if(!pendingPublish){
+      try{quantity(f.quantity,f.unit);}catch(e){fieldError(qty,e.message);}
+      if(!f.foodId)fieldError(food,'Choose a food.');
+      if(!f.listingExpiresAt)fieldError(expires,'Choose a declaration expiry.');
+      if(Date.parse(f.listingExpiresAt)<=api.now())fieldError(expires,'Choose a future declaration expiry.');
+      if(f.price.status==='priced'){try{quantity(f.price.amount,'kg');}catch{fieldError(amount,'Enter a valid price amount.');}}
+      if(f.price.basis==='bundle'){try{quantity(f.price.bundle_quantity,f.unit);if(Number(f.price.bundle_quantity)<=0)throw Error();}catch{fieldError(bundle,'Enter the number of counted units in the bundle.');}}
+      if(f.note.length>2000)fieldError(note,'Keep the note to 2,000 characters or fewer.');
+      if(f.collectionStart&&f.collectionEnd&&Date.parse(f.collectionEnd)<=Date.parse(f.collectionStart))fieldError(end,'Collection must end after it starts.');
+      api.validate('integrity_publish_v2','request',{...publicationPayload(draft,source),lot_id:draft.lotId||draft.createId,operation_id:draft.publishId});
+    }
     if(offer&&!newBatch&&draft.baseRevision!==offer.revision)throw Error('Resolve the revision conflict before publishing.');
     if(!draft.lotId&&!foods.find(x=>x.id===f.foodId)?.units.some(u=>u.unit===f.unit))throw Error('Choose a unit from the current food directory.');
-    const review=el('div');review.append(el('p',`${f.quantity} ${f.unit} ${draft.foodName} · ${priceText(f.price,f.unit)} · ${f.pressure}`),el('p','Confirm your physical count and collection window now. Any server revision conflict will preserve this draft.'),button('Confirm publication',async()=>{
+    const review=el('div'),partial=el('h3',batchIncomplete(draft)?'Batch created · publication not completed':''),safe=el('p','Your draft is safe.');review.append(partial,safe,el('p',`${f.quantity} ${f.unit} ${draft.foodName} · ${priceText(f.price,f.unit)} · ${f.pressure}`),el('p','Confirm your physical count and collection window now. Any server revision conflict will preserve this draft.'),button('Confirm publication',async()=>{
       if(!ctx.guard(g))return;
-      if(!draft.lotId){const result=await ctx.command('integrity_create_lot_v1',{source_id:source,food_id:f.foodId,unit:f.unit,physical_dates:f.dates},source,{operationId:draft.createId});if(!result)return;draft=await store.saveDraft(user,source,id,{...draft,lotId:result.lot_id,baseRevision:result.revision},draft.localVersion);}
-      const result=await ctx.command('integrity_publish_v2',{source_id:source,lot_id:draft.lotId,expected_revision:draft.baseRevision,physical_quantity:f.quantity,price:f.price,lifecycle:f.lifecycle,pressure:f.pressure,visibility:f.visibility,reservable:f.reservable,listing_expires_at:f.listingExpiresAt,collection_start:f.collectionStart,collection_end:f.collectionEnd,...(f.noteTouched||!offer||newBatch?{note:f.note||null}:{})},source,{operationId:draft.publishId});
-      if(result){await store.remove('drafts',user,source,id);closeModal();await ctx.refresh();message('Published · server acknowledgement received.');}
+      state.mutating++;
+      try{
+        const result=await continueBatchPublication(store,ctx.outbox,draft,{user,source,guard:()=>ctx.guard(g),onCreated:created=>{draft=created;partial.textContent='Batch created · publication not completed';safe.textContent='Your draft is safe.';}});
+        if(result){closeModal();message('Published · server acknowledgement received.');}
+      }finally{state.mutating--;await ctx.refresh();}
     },'primary'));modal('Confirm your declaration',review);
   },'primary'));modal('Your batch',box,()=>{closed=true;});
 }

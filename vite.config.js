@@ -1,2 +1,3 @@
+import fs from 'node:fs';
 import {defineConfig} from 'vite';
-export default defineConfig({root:'staging',envDir:'..',base:'./',server:{host:'0.0.0.0',allowedHosts:['terminal.local']},build:{outDir:'../dist',emptyOutDir:true,commonjsOptions:{include:[/node_modules/,/validators\.cjs$/]}}});
+export default defineConfig(({command})=>({plugins:command==='serve'&&fs.existsSync('.recovery-qa.local.json')?[{name:'recovery-fixture',configureServer(server){server.middlewares.use((req,res,next)=>{if(req.url!=='/')return next();res.setHeader('Content-Type','text/html');res.end(fs.readFileSync('tests/recovery-browser.html','utf8').replace('__REPO__',process.cwd()));});}}]:[],root:'staging',envDir:'..',base:'./',server:{host:'0.0.0.0',allowedHosts:['terminal.local']},build:{outDir:'../dist',emptyOutDir:true,commonjsOptions:{include:[/node_modules/,/validators\.cjs$/]}}}));

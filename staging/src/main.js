@@ -1,3 +1,4 @@
+import {batchIncomplete,recoverBatchDraft} from './batch-recovery.js';
 import {createClient} from '@supabase/supabase-js';
 import {CONFIG} from './config.js';
 import {IntegrityApi} from './api.js';
@@ -23,7 +24,7 @@ const store=new PrivateStore(CONFIG.app),api=new IntegrityApi(CONFIG,{session:()
 const outbox=new Outbox(store,api,{identity:()=>state.session?.user.id});
 const sb=CONFIG.publishableKey?createClient(CONFIG.url,CONFIG.publishableKey,{auth:{flowType:'pkce',detectSessionInUrl:false,persistSession:true,storageKey:`provision-${CONFIG.app}-staging-auth`}}):null;
 const ctx={CONFIG,state,store,api,outbox,el,button,message,field,select,check,modal,closeModal,empty,facts,refresh:()=>reconciler.run(),command,requireAuth,guard,authDialog};
-api.onPermissionDenied=async(_name,request)=>{if(_name==='integrity_review_queue_v1')return;const user=state.session?.user.id;closeModal();if(request.source_id&&request.source_id===state.sourceId){state.sourceId=null;state.claims=[];state.memberships=[];if(user)await store.clearServer(user,request.source_id);}$('#workspace').replaceChildren(empty('Access could not be confirmed','Refresh to recheck your current permissions. Your drafts remain on this device.'));};
+api.onPermissionDenied=async(_name,request)=>{if(_name==='integrity_review_queue_v1')return;const user=state.session?.user.id;if(!['integrity_create_lot_v1','integrity_publish_v2','integrity_operation_v1'].includes(_name))closeModal();if(request.source_id&&request.source_id===state.sourceId){state.sourceId=null;state.claims=[];state.memberships=[];if(user)await store.clearServer(user,request.source_id);}$('#workspace').replaceChildren(empty('Access could not be confirmed','Refresh to recheck your current permissions. Your drafts remain on this device.'));};
 let channel=null,sourceCleanup=()=>{};
 initDialog();
 const tabs=source?['Today','Claims','Saved work','Notices','Reviews','Support']:['Offers','My holds','My interest','Saved work','Notices','Reviews','Support'];
@@ -46,6 +47,7 @@ async function revalidateAfterWrite(row){
   await api.page('integrity_offers_v1',{food_id:null,source_id:row.source||null});
 }
 async function refresh(){
+  if(state.mutating)return null;
   const g=state.generation;connection();
   if(!CONFIG.publishableKey){state.loading=false;state.error='STAGING_SETUP_REQUIRED';await render();return null;}
   try{
@@ -172,11 +174,18 @@ async function savedWork(root){
   const g=state.generation,rows=await store.list('outbox',state.session.user.id);if(!guard(g))return;
   root.append(el('h2','Saved work'),el('p','Nothing publishes automatically after reconnecting. Retry keeps the original operation and payload.'));
   const drafts=await store.list('drafts',state.session.user.id);if(!guard(g))return;
-  for(const d of drafts){const c=el('article',null,{class:'card'});c.append(el('h3',d.foodName||'Saved batch'),el('p','Saved on this device · unpublished draft'));if(source)c.append(button('Resume saved draft',()=>resumeSourceDraft(d,ctx)));root.append(c);}
+  for(const d of drafts){const c=el('article',null,{class:'card'});c.append(el('h3',d.foodName||'Saved batch'),el('p',batchIncomplete(d)?'Batch created · publication not completed':'Saved on this device · unpublished draft'),el('p','Your draft is safe.'));if(source)c.append(button(batchIncomplete(d)?'Continue publication':'Resume saved draft',()=>resumeSourceDraft(d,ctx)));root.append(c);}
   for(const row of rows){const c=el('article',null,{class:'card'}),labels={saved:'Saved on this device',sending:'Sending / acknowledgement unresolved',published:'Published',attention:'Needs attention'};
-    c.append(el('h3',row.name.replace('integrity_','').replace('_v1','').replaceAll('_',' ')),el('p',labels[row.status]||row.status),el('p',row.error||'',{class:'muted'}));
+    c.append(el('h3',row.name.replace('integrity_','').replace('_v1','').replaceAll('_',' ')),el('p',row.safeToRetry?'Server check: not committed · safe to retry the same operation':labels[row.status]||row.status),el('p',row.error||'',{class:'muted'}));
     const detail=el('details'),summary=el('summary','Review exact saved operation');detail.append(summary,el('pre',row.payload));c.append(detail);
-    if(['saved','sending'].includes(row.status))c.append(button('Review & retry',async()=>{const box=el('div');box.append(el('p','Check the current stock and terms before sending an operation that has not previously been attempted. An attempted operation is replayed exactly to resolve its acknowledgement.'),el('pre',row.payload),button('Send this exact operation',async()=>{state.mutating++;try{await outbox.send(row,{reviewed:true});if(!guard(g))return;await revalidateAfterWrite(row);if(!guard(g))return;closeModal();await reconciler.run();message('Operation acknowledged. Current state has been revalidated.');}finally{state.mutating--;}},'primary'));modal('Review saved work',box);}));
+    if(row.status!=='published')c.append(button('Check server acknowledgement',async()=>{
+      state.mutating++;
+      try{const checked=await outbox.reconcile(row);if(!guard(g))return;
+        for(const d of drafts.filter(d=>d.source===row.source&&[d.createId,d.publishId].includes(row.id)))await recoverBatchDraft(store,outbox,d,{user:row.user,source:row.source,guard:()=>guard(g),checkServer:false});
+        message(checked.status==='published'?'Server acknowledgement recovered.':checked.safeToRetry?'No committed operation found. The same saved operation is safe to retry.':'The server has not confirmed this operation. Your draft is safe.');
+      }finally{state.mutating--;await reconciler.run();}
+    }));
+    if(['saved','sending','attention'].includes(row.status))c.append(button('Review & retry',async()=>{const box=el('div');box.append(el('p','Check the current stock and terms before sending an operation that has not previously been attempted. An attempted operation is replayed exactly to resolve its acknowledgement.'),el('pre',row.payload),button('Send this exact operation',async()=>{state.mutating++;try{await outbox.send(row,{reviewed:true});if(!guard(g))return;for(const d of drafts.filter(d=>d.source===row.source&&[d.createId,d.publishId].includes(row.id)))await recoverBatchDraft(store,outbox,d,{user:row.user,source:row.source,guard:()=>guard(g),checkServer:false});await revalidateAfterWrite(row);if(!guard(g))return;closeModal();await reconciler.run();message('Operation acknowledged. Current state has been revalidated.');}finally{state.mutating--;await reconciler.run();}},'primary'));modal('Review saved work',box);}));
     root.append(c);
   }
   if(!rows.length)root.append(empty('No outbound operations on this device','Source drafts are retained separately from acknowledged server state.'));

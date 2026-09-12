@@ -15,6 +15,14 @@ export class PrivateStore {
       tx.oncomplete=()=>resolve(saved);tx.onerror=tx.onabort=()=>reject(Error('Draft changed in another tab, or device storage failed. Reopen the saved draft before editing.'));
     });
   }
+  async acknowledgeDraft(user,source,id,publishId,localVersion){
+    const db=await this.open(),key=this.key(user,source,id);
+    return new Promise((resolve,reject)=>{const tx=db.transaction('drafts','readwrite'),s=tx.objectStore('drafts'),r=s.get(key);
+      r.onsuccess=()=>{if(!r.result)return;if(r.result.publishId!==publishId||r.result.localVersion!==localVersion){tx.abort();return;}s.delete(key);};
+      tx.oncomplete=()=>resolve();tx.onerror=tx.onabort=()=>reject(Error('Publication acknowledged, but this draft changed in another tab. Your newer edits were retained.'));
+    });
+  }
+
 }
 export class Outbox {
   constructor(store,api,{identity,lock=globalThis.navigator?.locks}={}){this.store=store;this.api=api;this.identity=identity;this.lock=lock;}
@@ -29,7 +37,7 @@ export class Outbox {
       const rows=await this.store.list('outbox',user,source),same=rows.find(r=>r.name===name&&encode(JSON.parse(r.payload))===encode(payload)&&(r.status!=='published'||Date.now()-r.createdAt<900000));
       if(same)return same;
       const target=p=>p.offer_id||p.claim_id||p.lot_id||p.attachment_id||p.source_id||p.food_id||null;
-      if(rows.some(r=>r.name===name&&r.attempted&&['saved','sending'].includes(r.status)&&target(JSON.parse(r.payload))===target(payload)))throw Error('An earlier operation for this item has an unresolved acknowledgement. Resolve it in Saved work before changing the request.');
+      if(rows.some(r=>r.name===name&&r.attempted&&['saved','sending','attention'].includes(r.status)&&target(JSON.parse(r.payload))===target(payload)))throw Error('An earlier operation for this item has an unresolved acknowledgement. Resolve it in Saved work before changing the request.');
       const id=crypto.randomUUID();return this.enqueue(user,source,id,name,{...payload,operation_id:id});
     });
   }
@@ -40,21 +48,53 @@ export class Outbox {
     const row={name,payload:JSON.stringify(payload),status:'saved',createdAt:Date.now(),attempted:false};
     await this.store.put('outbox',user,source,id,row);return this.store.get('outbox',user,source,id);
   }
+  checkIdentity(row){if(this.identity()!==row.user)throw Error('Account changed. Sign back in to the account that saved this operation.');}
+  async reconcile(row){
+    if(!this.lock)throw Error('This browser cannot safely coordinate saved work across tabs.');
+    return this.lock.request(`${this.store.name}:${row.key}`,async()=>this.reconcileLocked(await this.store.get('outbox',row.user,row.source,row.id)));
+  }
+  async reconcileLocked(row){
+    this.checkIdentity(row);
+    if(row.status==='published')return row;
+    try{
+      const response=await this.api.rpc('integrity_operation_v1',{operation_id:row.id,action:row.name,source_id:row.source});
+      this.checkIdentity(row);
+      const operation=response.data;
+      if(operation===null){row.status='saved';row.safeToRetry=true;row.reconciliation='not_committed';row.error=null;}
+      else {
+        if(operation.operation_id!==row.id||operation.action!==row.name)throw Error('Operation check returned a different operation. Your saved request was retained.');
+        row.serverOperation=operation;row.safeToRetry=false;
+        if(operation.status==='committed'){
+          // The pinned lookup returns metadata only. Exact authorised replay returns
+          // the original full acknowledgement without applying a second mutation.
+          const result=await this.api.rpc(row.name,JSON.parse(row.payload));this.checkIdentity(row);
+          this.api.validate(row.name,'response',result);
+          row.status='published';row.result=result;row.reconciliation='committed';row.error=null;
+        }else {row.status='attention';row.reconciliation=operation.status;row.error=operation.error_code||'The server has not confirmed this operation. Check again before continuing.';}
+      }
+      row.reconciledAt=Date.now();row.reconciliationError=null;
+      await this.store.put('outbox',row.user,row.source,row.id,row);return row;
+    }catch(e){
+      // Network/permission/404 errors are NOT proof that an operation is absent.
+      row.safeToRetry=false;row.reconciliationError=e.code||e.message;
+      await this.store.put('outbox',row.user,row.source,row.id,row);throw e;
+    }
+  }
   async send(row,{reviewed=false}={}){
     if(!this.lock)throw Error('This browser cannot safely coordinate publication across tabs. Use a supported browser.');
     return this.lock.request(`${this.store.name}:${row.key}`,async()=>{
-      row=await this.store.get('outbox',row.user,row.source,row.id);
-      if(this.identity()!==row.user)throw Error('Sign back in to the account that saved this operation.');
+      row=await this.store.get('outbox',row.user,row.source,row.id);this.checkIdentity(row);
       if(row.status==='published')return row.result;
-      if(row.status==='attention')throw Error('This operation needs reconciliation. Review current server state before creating a replacement.');
+      if(row.attempted||['attention','sending'].includes(row.status))row=await this.reconcileLocked(row);
+      if(row.status==='published')return row.result;
+      if(row.status==='attention')throw Error(row.error||'The server has not confirmed this operation. Your saved request is retained.');
       if(!row.attempted&&!reviewed&&Date.now()-row.createdAt>15*60*1000)throw Error('Review this saved operation against current stock before sending.');
       const save=()=>this.store.put('outbox',row.user,row.source,row.id,row);
-      row.status='sending';row.attempted=true;await save();
+      row.status='sending';row.attempted=true;row.safeToRetry=false;await save();
       try{
-        if(this.identity()!==row.user)throw Error('Account changed before sending. Sign back in to the original account.');
-        // Exact authorised replay is the backend replay contract. Never mint another ID.
+        this.checkIdentity(row);
         const result=await this.api.rpc(row.name,JSON.parse(row.payload));
-        row.status='published';row.result=result;await save();return result;
+        row.status='published';row.result=result;row.error=null;await save();return result;
       }catch(e){row.status=[400,403,409].includes(e.status)||e.code==='INVALID_REQUEST'?'attention':'saved';row.error=e.code||e.message;await save();throw e;}
     });
   }

@@ -60,7 +60,7 @@ test('quota/storage failure prevents sending',async()=>{
  const b=new Outbox(s,a,{identity:()=>user,lock:locks});await assert.rejects(b.enqueue(user,source,uuid,'write',{operation_id:uuid}),/quota/);assert.equal(called,false);
 });
 test('lost response replays identical values; never generates a new operation',async()=>{
- const s=db(),calls=[];let first=true;const api={validate(){},async rpc(n,p){calls.push([n,JSON.stringify(p)]);if(first){first=false;throw new ApiError('CONNECTION_UNCONFIRMED');}return envelope({physical_quantity:'17',held_quantity:'0',claimable_quantity:'17'});}};
+ const s=db(),calls=[];let first=true;const api={validate(){},async rpc(n,p){if(n==='integrity_operation_v1')return envelope(null);calls.push([n,JSON.stringify(p)]);if(first){first=false;throw new ApiError('CONNECTION_UNCONFIRMED');}return envelope({physical_quantity:'17',held_quantity:'0',claimable_quantity:'17'});}};
  const b=new Outbox(s,api,{identity:()=>user,lock:locks}),row=await b.enqueue(user,source,uuid,'integrity_collect_claim_v1',{operation_id:uuid,quantity:'3.0'});
  await assert.rejects(b.send(row));const retry=await s.get('outbox',user,source,uuid);assert.equal(retry.status,'saved');
  const result=await b.send(retry);assert.deepEqual(calls[0],calls[1]);assert.equal(result.data.physical_quantity,'17');assert.equal((await s.get('outbox',user,source,uuid)).status,'published');
