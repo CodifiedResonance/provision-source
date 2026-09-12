@@ -1,0 +1,17 @@
+{
+  "date": "2026-09-08",
+  "repo": "provision-source",
+  "local_tests": {
+    "passed": 21,
+    "failed": 0,
+    "scope": "Node, fake IndexedDB, mocked transport/locks and VM service-worker handlers; not browser or actual staging"
+  },
+  "syntax_and_assets": "PASS",
+  "contract_declarations_typecheck": "PASS; application JS is not fully typechecked",
+  "build": "PASS",
+  "browser": "BLOCKED: supported browser cannot reach supervised preview (ERR_BLOCKED_BY_CLIENT)",
+  "actual_staging_e2e": "NOT_RUN: staging public key and synthetic accounts absent",
+  "remote_ci": "NOT_RUN",
+  "production_changed": false,
+  "release_ready": false
+}
