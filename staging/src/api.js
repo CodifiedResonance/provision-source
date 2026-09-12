@@ -7,7 +7,7 @@ export class IntegrityApi {
     this.config=config;this.fetcher=fetcher;this.session=session;this.clock=clock;this.health=null;this.identity=null;this.offset=0;this.lastSynced=null;this.incompatible=false;
   }
   validate(name,side,payload){const v=validators[name+'_'+side];if(!v||!v(payload))throw new ApiError(side==='response'?'UPDATE_REQUIRED':'INVALID_REQUEST');}
-  async rpc(name,request){
+  async rpc(name,request,{unpublishedLot=false}={}){
     const op=operations[name];if(!op)throw new ApiError('UNDOCUMENTED_OPERATION');
     this.validate(name,'request',request);
     if(!this.config.publishableKey)throw new ApiError('STAGING_SETUP_REQUIRED');
@@ -22,7 +22,14 @@ export class IntegrityApi {
     try{response=await this.fetcher(this.config.url+'/rest/v1/rpc/'+name,{method:'POST',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(20000),headers:{apikey:this.config.publishableKey,'Content-Type':'application/json',...(session?{Authorization:'Bearer '+session.access_token}:{})},body:JSON.stringify({p_request:request})});}
     catch{throw new ApiError('CONNECTION_UNCONFIRMED');}
     let result;try{result=await response.json();}catch{throw new ApiError('INVALID_SERVER_RESPONSE',response.status);}
-    if(!response.ok){if([401,403].includes(response.status)&&op.auth!=='public')await this.onPermissionDenied?.(name,request);throw new ApiError(typeof result.message==='string'?result.message:'REQUEST_FAILED',response.status);}
+    if(!response.ok){
+      const code=typeof result.message==='string'?result.message:'REQUEST_FAILED';
+      // This backend uses HTTP 403 for NOT_FOUND as well as FORBIDDEN.
+      // A known revision-0 lot can exist without its first public/member offer.
+      const expectedMissing=unpublishedLot&&name==='integrity_member_offer_v1'&&request.offer_id===null&&typeof request.lot_id==='string'&&response.status===403&&code==='NOT_FOUND';
+      if([401,403].includes(response.status)&&op.auth!=='public'&&!expectedMissing)await this.onPermissionDenied?.(name,request);
+      throw new ApiError(code,response.status);
+    }
     try{this.validate(name,'response',result);}catch(e){this.incompatible=true;this.health=null;throw e;}
     // Mutations/replays carry original timestamps. Only fresh reads set the clock.
     if(!op.mutation){this.offset=Date.parse(result.server_time)-(start+this.clock())/2;this.lastSynced=result.server_time;}

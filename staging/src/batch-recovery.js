@@ -14,8 +14,24 @@ function assertAcknowledgedForm(d,row,source){
   const original=JSON.parse(row.payload),current=publicationPayload(d,source);
   if(Object.keys(original).filter(k=>k!=='operation_id').some(k=>!sameValue(original[k],current[k])))throw Error('Publication acknowledged, but this draft contains newer edits. Your newer draft was retained.');
 }
+async function recoverMissingDraft(store,outbox,d,{user,source,guard,checkServer}){
+  const missing=()=>Error('This draft is no longer on this device, and publication has not been confirmed. Refresh Saved work to check the original operation.');
+  let row=await store.get('outbox',user,source,d.publishId);check(outbox,user,guard);
+  if(!row)throw missing();
+  if(!['integrity_publish_v1','integrity_publish_v2'].includes(row.name))throw Error('Saved operation does not belong to this batch.');
+  if(checkServer&&row.status!=='published')row=await outbox.reconcile(row);
+  check(outbox,user,guard);
+  if(row.status!=='published'||!row.result)throw missing();
+  // The caller can predate the create acknowledgement in another tab. Its exact
+  // publication ID still identifies the batch; no draft or operation is created.
+  const original=JSON.parse(row.payload);
+  assertAcknowledgedForm({...d,lotId:d.lotId||original.lot_id},row,source);
+  return {draft:null,result:row.result};
+}
 export async function recoverBatchDraft(store,outbox,d,{user,source,guard=()=>true,checkServer=true}={}){
-  check(outbox,user,guard);d=await store.get('drafts',user,source,d.id);if(!d)return {draft:null};
+  check(outbox,user,guard);const current=await store.get('drafts',user,source,d.id);
+  if(!current)return recoverMissingDraft(store,outbox,d,{user,source,guard,checkServer});
+  d=current;
   for(const [id,name] of [[d.createId,'integrity_create_lot_v1'],[d.publishId,'integrity_publish_v2']]){
     let row=await store.get('outbox',user,source,id);if(!row)continue;
     if(row.name!==name&&!(id===d.publishId&&row.name==='integrity_publish_v1'))throw Error('Saved operation does not belong to this batch.');
@@ -27,13 +43,15 @@ export async function recoverBatchDraft(store,outbox,d,{user,source,guard=()=>tr
   }
   return {draft:d};
 }
-export async function continueBatchPublication(store,outbox,d,{user,source,guard=()=>true,onCreated=()=>{},allowCorrection=false}={}){
+export async function continueBatchPublication(store,outbox,d,{user,source,guard=()=>true,onCreated=()=>{},onProgress=()=>{},allowCorrection=false}={}){
+  onProgress('checking');
   const recovered=await recoverBatchDraft(store,outbox,d,{user,source,guard});
   d=recovered.draft;if(!d)return recovered.result;
   if(!d.lotId){
     const f=d.form;
     let row=await store.get('outbox',user,source,d.createId);
     if(!row)row=await outbox.prepare(user,source,'integrity_create_lot_v1',{source_id:source,food_id:f.foodId,unit:f.unit,physical_dates:f.dates},d.createId);
+    onProgress('creating');
     const result=await outbox.send(row,{reviewed:true});check(outbox,user,guard);
     d=await adoptCreated(store,d,{...row,result},user,source);
   }
@@ -42,6 +60,7 @@ export async function continueBatchPublication(store,outbox,d,{user,source,guard
   if(!publish)publish=await outbox.prepare(user,source,'integrity_publish_v2',publicationPayload(d,source),d.publishId);
   if(publish&&allowCorrection&&!sameValue(JSON.parse(publish.payload),{...publicationPayload(d,source),operation_id:d.publishId}))publish=await outbox.amendRejectedPublication(publish,publicationPayload(d,source));
   if(publish.status==='published')assertAcknowledgedForm(d,publish,source);
+  onProgress('publishing');
   const result=await outbox.send(publish,{reviewed:true});check(outbox,user,guard);
   assertAcknowledgedForm(d,await store.get('outbox',user,source,d.publishId),source);
   await store.acknowledgeDraft(user,source,d.id,d.publishId,d.localVersion);

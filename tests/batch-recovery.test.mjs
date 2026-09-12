@@ -109,3 +109,27 @@ test('correction rejects stale-tab payload and changing the batch or revision',a
  await f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),physical_quantity:'15'});
  await assert.rejects(f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),physical_quantity:'10'}),/another tab/);
 });
+
+test('a stale confirmation adopts the retained acknowledgement after another tab removed the draft',async()=>{
+ const f=await fixture();const acknowledged=await continueBatchPublication(f.store,f.outbox,f.draft,options);
+ assert.equal(await f.store.get('drafts',user,source,f.draft.id),undefined);
+ const result=await continueBatchPublication(f.store,f.outbox,f.draft,options);
+ assert.deepEqual(result,acknowledged);assert.deepEqual(f.counts(),{lots:1,publications:1});
+});
+test('a missing draft with a lost publication response recovers its exact acknowledgement without creating a batch',async()=>{
+ const f=await fixture();f.losePublish();await assert.rejects(continueBatchPublication(f.store,f.outbox,f.draft,options),/CONNECTION_UNCONFIRMED/);
+ await f.store.remove('drafts',user,source,f.draft.id);
+ const result=await continueBatchPublication(f.store,f.outbox,f.draft,options);
+ assert.equal(result.data.id,offer);assert.deepEqual(f.counts(),{lots:1,publications:1});
+ assert.ok(f.calls.some(c=>c.name==='integrity_operation_v1'&&c.p.operation_id===publishId));
+ assert.ok(f.calls.filter(c=>c.name==='integrity_publish_v2').every(c=>c.p.operation_id===publishId));
+});
+test('a missing draft without an acknowledged publication reports the state and never recreates work',async()=>{
+ const f=await fixture();await f.store.remove('drafts',user,source,f.draft.id);
+ await assert.rejects(continueBatchPublication(f.store,f.outbox,f.draft,options),/draft is no longer.*publication has not been confirmed/);
+ assert.deepEqual(f.counts(),{lots:0,publications:0});assert.equal(f.calls.length,0);
+ const rejected=await rejectedFixture();await rejected.store.remove('drafts',user,source,rejected.d.id);
+ await assert.rejects(continueBatchPublication(rejected.store,rejected.outbox,rejected.d,options),/draft is no longer.*publication has not been confirmed/);
+ assert.deepEqual(rejected.counts(),{lots:1,publications:0});
+ assert.equal((await rejected.store.get('outbox',user,source,publishId)).id,publishId);
+});

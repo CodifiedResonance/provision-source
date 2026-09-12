@@ -1,6 +1,7 @@
-import {formPrice,firstPublicationIssue,serverPublicationIssue} from './publication-validation.js';
+import {publicationReview} from './publication-review.js';
+import {formPrice,firstPublicationIssue} from './publication-validation.js';
 import {publicationEditable} from './storage.js';
-import {batchIncomplete,recoverBatchDraft,continueBatchPublication,publicationPayload} from './batch-recovery.js';
+import {batchIncomplete,recoverBatchDraft,publicationPayload} from './batch-recovery.js';
 import {offerForm,mergePlan} from './draft-merge.js';
 import {memberExport} from './member-data.js';
 import {profileForm,physicalDatesForm} from './member-forms.js';
@@ -52,7 +53,7 @@ async function edit(offer,ctx,newBatch=false,resume=null,requestedIssue=null){
   const {state,store,api,CONFIG}=ctx,user=state.session.user.id,source=state.sourceId,g=state.generation;
   if(!state.memberships.some(m=>m.source_id===source&&m.role!=='viewer'))throw Error('Current editing membership is required.');
   if(resume){const recovered=await recoverBatchDraft(store,ctx.outbox,resume,{user,source,guard:()=>ctx.guard(g)});if(!recovered.draft){closeModal();await ctx.refresh();message('Published · server acknowledgement recovered.');return;}resume=recovered.draft;}
-  if(!newBatch&&(offer||resume?.lotId)){try{offer=(await api.rpc('integrity_member_offer_v1',{source_id:source,offer_id:offer?.id||null,lot_id:offer?null:resume.lotId})).data;}catch(e){if(!(resume&&!offer&&e.code==='NOT_FOUND'&&resume.baseRevision===0))throw e;}}
+  if(!newBatch&&(offer||resume?.lotId)){try{offer=(await api.rpc('integrity_member_offer_v1',{source_id:source,offer_id:offer?.id||null,lot_id:offer?null:resume.lotId},{unpublishedLot:Boolean(resume&&!offer&&resume.baseRevision===0)})).data;}catch(e){if(!(resume&&!offer&&e.code==='NOT_FOUND'&&resume.baseRevision===0))throw e;}}
   if(!ctx.guard(g))return;
   if(offer&&!offer.lot_id&&!newBatch){message('This legacy offer needs owner/admin activation and reviewed historical claims before publication.');return;}
   const id=resume?.id||(newBatch||!offer?crypto.randomUUID():offer.lot_id);
@@ -87,7 +88,7 @@ async function edit(offer,ctx,newBatch=false,resume=null,requestedIssue=null){
   status.input.addEventListener('change',priceFields);basis.input.addEventListener('change',priceFields);priceFields();
   if(pendingPublish&&!lockedPublication)box.append(el('p','Publication was not completed. You can edit these details and continue with the same batch.'));
   box.append(button('Save on this device',save),button(batchIncomplete(draft)?'Continue publication':'Review & publish',async()=>{
-    await save();await saving;if(saveFailed)throw Error('Device save failed. Publication was not started.');if(!ctx.guard(g))return;
+    await save();await saving;if(saveFailed)throw Error('Device save failed. Publication was not started.');if(!ctx.guard(g))throw Error('Your account or Source changed. Reopen this draft from Saved work.');
     const f=draft.form;
     if(!lockedPublication){
       const issue=firstPublicationIssue(f,api.now());if(issue)fieldError(fieldMap[issue.field],issue.message);
@@ -95,18 +96,7 @@ async function edit(offer,ctx,newBatch=false,resume=null,requestedIssue=null){
     }
     if(offer&&!newBatch&&draft.baseRevision!==offer.revision)throw Error('Resolve the revision conflict before publishing.');
     if(!draft.lotId&&!foods.find(x=>x.id===f.foodId)?.units.some(u=>u.unit===f.unit))throw Error('Choose a unit from the current food directory.');
-    const review=el('div'),partial=el('h3',batchIncomplete(draft)?'Batch created · publication not completed':''),safe=el('p','Your draft is safe.');review.append(partial,safe,el('p',`${f.quantity} ${f.unit} ${draft.foodName} · ${priceText(f.price,f.unit)} · ${f.pressure}`),el('p','Confirm your physical count and collection window now. Any server revision conflict will preserve this draft.'),button('Confirm publication',async()=>{
-      if(!ctx.guard(g))return;
-      state.mutating++;
-      try{
-        const result=await continueBatchPublication(store,ctx.outbox,draft,{user,source,guard:()=>ctx.guard(g),allowCorrection:!lockedPublication,onCreated:created=>{draft=created;partial.textContent='Batch created · publication not completed';safe.textContent='Your draft is safe.';}});
-        if(result){closeModal();message('Published · server acknowledgement received.');}
-      }catch(e){
-        const issue=serverPublicationIssue(e.code||e.message);
-        if(!issue)throw e;
-        review.append(el('p',issue.message,{class:'error',role:'alert'}),button(issue.field==='status'||issue.field==='basis'?'Fix price':'Complete next field',async()=>{const latest=await store.get('drafts',user,source,id);if(latest)await edit(null,ctx,false,latest,issue);},'primary'));
-      }finally{state.mutating--;await ctx.refresh();}
-    },'primary'),button('Edit details',async()=>{const latest=await store.get('drafts',user,source,id);if(latest)await edit(null,ctx,false,latest);}));modal('Confirm your declaration',review);
+    publicationReview(draft,ctx,{user,source,guard:()=>ctx.guard(g)&&state.session?.user.id===user&&state.sourceId===source,allowCorrection:!lockedPublication,onEdit:async issue=>{const latest=await store.get('drafts',user,source,id);if(!latest)throw Error('This draft is no longer on this device. Check its publication status in Saved work.');await edit(null,ctx,false,latest,issue);}});
   },'primary'));modal('Your batch',box,()=>{closed=true;});
   if(!lockedPublication){const issue=firstPublicationIssue(snapshot(),api.now())||requestedIssue;if(issue)fieldError(fieldMap[issue.field],issue.message,{throwError:false});}
 
