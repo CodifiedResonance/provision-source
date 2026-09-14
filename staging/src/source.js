@@ -145,7 +145,7 @@ function printStock(offers,p){const box=el('div');box.append(el('h2',p.name),el(
 async function mergeDraft(draft,ctx){
   const {state,store,api}=ctx,user=state.session.user.id,source=state.sourceId,g=state.generation;
   const operation=await store.get('outbox',user,source,draft.publishId);
-  if(operation&&(operation.status!=='attention'||operation.error!=='REVISION_CONFLICT'))throw Error('Reconcile the original publication in Saved work before rebasing this draft. Its exact payload is retained.');
+  if(operation&&(operation.status!=='rejected'||operation.error!=='REVISION_CONFLICT'))throw Error('Reconcile the original publication in Saved work before rebasing this draft. Its exact payload is retained.');
   const current=(await api.rpc('integrity_member_offer_v1',{source_id:source,offer_id:null,lot_id:draft.lotId})).data;
   if(!ctx.guard(g))return;const server=offerForm(current),plan=mergePlan(draft.baseForm,draft.form,server),box=el('div'),choices={};
   box.append(el('p','Review differences against the latest Source record. Confirm the physical count explicitly. Both versions will remain in this draft’s merge history.'));
@@ -157,6 +157,7 @@ async function mergeDraft(draft,ctx){
     const form={...draft.form,dates:server.dates,foodId:server.foodId,unit:server.unit};
     for(const row of plan){const choice=choices[row.key].input.value;if(!choice)throw Error('Choose a value for every unresolved difference.');form[row.key]=row[choice];}
     form.noteTouched=form.note!==server.note;
+    if(operation)await ctx.outbox.close(operation);
     const saved=await store.saveDraft(user,source,draft.id,{...draft,form,baseForm:server,baseRevision:current.revision,publishId:crypto.randomUUID(),mergeHistory:[...(draft.mergeHistory||[]),{local:draft.form,server,previousRevision:draft.baseRevision,serverRevision:current.revision,previousPublishId:draft.publishId}]},draft.localVersion);
     if(ctx.guard(g))await edit(current,ctx,false,saved);
   },'primary'));modal('Merge saved work',box);

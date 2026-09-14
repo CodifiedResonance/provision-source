@@ -8,16 +8,17 @@ export class IntegrityApi {
   }
   validate(name,side,payload){const v=validators[name+'_'+side];if(!v||!v(payload))throw new ApiError(side==='response'?'UPDATE_REQUIRED':'INVALID_REQUEST');}
   async rpc(name,request,{unpublishedLot=false}={}){
-    const op=operations[name];if(!op)throw new ApiError('UNDOCUMENTED_OPERATION');
+    const op=operations[name];let session;try{if(!op)throw new ApiError('UNDOCUMENTED_OPERATION');
     this.validate(name,'request',request);
     if(!this.config.publishableKey)throw new ApiError('STAGING_SETUP_REQUIRED');
     if(this.incompatible)throw new ApiError('UPDATE_REQUIRED');
     if(!['integrity_contract_identity_v1','integrity_health_v1'].includes(name)&&!this.identity)throw new ApiError('RUNTIME_NOT_VERIFIED');
-    const session=this.session();
+    session=this.session();
     if(op.auth!=='public'&&!session)throw new ApiError('AUTH_REQUIRED',403);
     if(op.mutation&&!['enabled','degraded'].includes(this.health?.write_mode))throw new ApiError('READ_ONLY');
     const capability=op.mutation?(name.includes('_claim_')?'claims':name.includes('_evidence_')?'evidence_upload':['integrity_save_demand_v1','integrity_update_demand_v1'].includes(name)?'demand_capture':null):null;
     if(capability&&!this.health?.capabilities[capability])throw new ApiError('CAPABILITY_DISABLED');
+    }catch(e){e.beforeDispatch=true;throw e;}
     const start=this.clock();let response;
     try{response=await this.fetcher(this.config.url+'/rest/v1/rpc/'+name,{method:'POST',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(20000),headers:{apikey:this.config.publishableKey,'Content-Type':'application/json',...(session?{Authorization:'Bearer '+session.access_token}:{})},body:JSON.stringify({p_request:request})});}
     catch{throw new ApiError('CONNECTION_UNCONFIRMED');}
@@ -27,8 +28,9 @@ export class IntegrityApi {
       // This backend uses HTTP 403 for NOT_FOUND as well as FORBIDDEN.
       // A known revision-0 lot can exist without its first public/member offer.
       const expectedMissing=unpublishedLot&&name==='integrity_member_offer_v1'&&request.offer_id===null&&typeof request.lot_id==='string'&&response.status===403&&code==='NOT_FOUND';
-      if([401,403].includes(response.status)&&op.auth!=='public'&&!expectedMissing)await this.onPermissionDenied?.(name,request);
-      throw new ApiError(code,response.status);
+      const error=new ApiError(code,response.status);error.deterministicRejection=['PT400','PT403','PT409'].includes(result.code)||response.status===401;
+      if([401,403].includes(response.status)&&op.auth!=='public'&&!expectedMissing){try{await this.onPermissionDenied?.(name,request);}catch{/* Display/storage failure cannot erase a received server rejection. */}}
+      throw error;
     }
     try{this.validate(name,'response',result);}catch(e){this.incompatible=true;this.health=null;throw e;}
     // Mutations/replays carry original timestamps. Only fresh reads set the clock.

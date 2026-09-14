@@ -50,6 +50,7 @@ async function fixture(t){
       if(saved)assert.equal(p.action,saved.name);
       return Response.json(envelope(saved?{operation_id:p.operation_id,action:saved.name,status:'committed',record_id:saved.result.data.id||saved.result.data.lot_id,revision:saved.result.data.revision,committed_at:saved.result.server_time,error_code:null}:null));
     }
+    if(name==='integrity_member_offer_v1')return Response.json(envelope({...committed.get(ids.publish).result.data,note:null}));
     const prior=committed.get(p.operation_id);
     if(prior){assert.equal(name,prior.name);assert.deepEqual(p,prior.request);return Response.json(prior.result);}
     let result;
@@ -90,7 +91,7 @@ async function assertPublished(f,api=f.api){
   assert.equal(await f.store.get('drafts',ids.user,ids.source,f.draft.id),undefined);
   const rows=await f.store.list('outbox',ids.user,ids.source);
   assert.deepEqual(rows.map(r=>r.id).sort(),[ids.create,ids.publish].sort());
-  assert.ok(rows.every(r=>r.status==='published'));
+  assert.ok(rows.every(r=>r.status==='committed'));
   const response=await api.page('integrity_offers_v1',{food_id:ids.food,source_id:ids.source});
   assert.equal(response.data.items.length,1);assert.equal(response.data.items[0].food_name,'Potatoes');
   assert.equal(eligible(response.data.items[0],api.now(),'test'),true,'recovered offer must pass the staging consumer visibility filter');
@@ -114,7 +115,7 @@ test('validated HTTP recovery publishes one 20 kg potato offer with unknown pric
   await assertPublished(f);
 });
 
-test('validated HTTP lost create and publication acknowledgements replay exact requests without duplicating either record',async t=>{
+test('validated HTTP lost create and publication acknowledgements adopt read-only results without duplicating either record',async t=>{
   const f=await fixture(t);f.dropNext('integrity_create_lot_v1');
   await assert.rejects(create(f),/CONNECTION_UNCONFIRMED/);
   const recovered=await recoverBatchDraft(f.store,f.outbox,f.draft,options);
@@ -128,25 +129,25 @@ test('validated HTTP lost create and publication acknowledgements replay exact r
   const result=await continueBatchPublication(f.store,f.outbox,recovered.draft,options);
   assert.equal(result.data.id,ids.offer);
   for(const [name,id] of [['integrity_create_lot_v1',ids.create],['integrity_publish_v2',ids.publish]]){
-    const writes=f.calls.filter(c=>c.name===name);assert.equal(writes.length,2);
-    assert.deepEqual(writes[0].p,writes[1].p);assert.equal(writes[0].p.operation_id,id);
+    const writes=f.calls.filter(c=>c.name===name);assert.equal(writes.length,1);
+    assert.equal(writes[0].p.operation_id,id);
     assert.ok(f.calls.some(c=>c.name==='integrity_operation_v1'&&c.p.operation_id===id));
   }
   await assertPublished(f);
 });
 
-test('incomplete publication response fails real schema validation and retains the draft until exact committed replay',async t=>{
+test('incomplete publication response fails real schema validation and retains the draft until exact committed lookup and read',async t=>{
   const f=await fixture(t);f.malformedNext();
   await assert.rejects(continueBatchPublication(f.store,f.outbox,f.draft,options),/UPDATE_REQUIRED/);
   assert.equal(f.api.incompatible,true);
   assert.ok(await f.store.get('drafts',ids.user,ids.source,f.draft.id));
-  assert.notEqual((await f.store.get('outbox',ids.user,ids.source,ids.publish)).status,'published');
+  assert.notEqual((await f.store.get('outbox',ids.user,ids.source,ids.publish)).status,'committed');
   assert.deepEqual(f.counts(),{lots:1,publications:1});
   // A refreshed client verifies identity/health again, then adopts the original
-  // full acknowledgement through operation lookup plus authorised exact replay.
+  // authoritative state through operation lookup plus authorised reads.
   const refreshed=await f.client();
   await continueBatchPublication(f.store,refreshed.outbox,f.draft,options);
-  assert.equal(f.calls.filter(c=>c.name==='integrity_publish_v2').length,2);
+  assert.equal(f.calls.filter(c=>c.name==='integrity_publish_v2').length,1);
   await assertPublished(f,refreshed.api);
 });
 

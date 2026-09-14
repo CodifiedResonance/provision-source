@@ -17,8 +17,8 @@ async function setup(partial,rejectPrice=false){
  const wire=new IntegrityApi({url:'https://qaaskvbhssonbktdjdki.supabase.co',publishableKey:'fixture-only'},{session:()=>({...state.session,access_token:'fixture-only'}),fetcher:async()=>new Response(JSON.stringify({message:'NOT_FOUND'}),{status:403,headers:{'Content-Type':'application/json'}})});wire.identity={};
  wire.onPermissionDenied=()=>{state.sourceId=null;state.memberships=[];closeModal();};
  const api={now:()=>Date.now(),validate(){},async rpc(n,p,options){
-  if(n==='integrity_member_offer_v1')return wire.rpc(n,p,options);
-  if(n==='integrity_operation_v1'){lookups++;proof();const r=results.get(p.operation_id);return wrap(r?{operation_id:p.operation_id,action:p.action,status:'committed'}:null);}
+  if(n==='integrity_member_offer_v1'){const r=[...results.values()].find(r=>r.data.id);return r||wire.rpc(n,p,options);}
+  if(n==='integrity_operation_v1'){lookups++;proof();const r=results.get(p.operation_id);return wrap(r?{operation_id:p.operation_id,action:p.action,status:'committed',record_id:r.data.id||r.data.lot_id,revision:r.data.revision,committed_at:r.server_time}:null);}
   if(results.has(p.operation_id))return results.get(p.operation_id);
   if(n==='integrity_create_lot_v1'){lots++;const r=wrap({lot_id:lotId,revision:0});results.set(p.operation_id,r);proof();return r;}
   if(n==='integrity_publish_v2'){await new Promise(resolve=>setTimeout(resolve,2000));if(state.sourceId!==source)throw Error('Source selection was lost');commands.push(p.operation_id);if(p.price.status!=='unknown'&&!p.price.basis){const e=Error('INVALID_PRICE');e.code='INVALID_PRICE';e.status=400;throw e;}if(failFirst){failFirst=false;if(rejectPrice){const e=Error('INVALID_PRICE');e.code='INVALID_PRICE';e.status=400;throw e;}throw Error('Simulated connection loss. Continue publication to retry the original operation.');}pubs++;const r=wrap({id:'44444444-4444-4444-8444-444444444444',lot_id:lotId,revision:1});results.set(p.operation_id,r);proof();return r;}

@@ -1,4 +1,5 @@
 import {el,button,field,select,check,modal,closeModal,message,empty,facts} from './dom.js';
+import {claimTime} from './claim-journey.js';
 import {time,priceText,quantity,safeUrl} from './domain.js';
 
 export function demandDialog(offer,ctx,existing=null){
@@ -8,7 +9,7 @@ export function demandDialog(offer,ctx,existing=null){
   const box=el('div'),food=select('Food',[['','Choose a food'],...state.foods.map(f=>[f.id,f.name])],existing?.food_id||offer?.food_id||''),area=select('Collection area',[['','Choose an area'],...state.areas.map(a=>[a.id,`${a.label} · ${a.classification}`])],existing?.area_id||''),confirmed=check('I explicitly confirm this is my intended collection area.'),unit=select('How is this counted?',[]),qty=field('Quantity',existing?.quantity||'1'),cadence=select('How often?',['once','daily','weekly','fortnightly','monthly'],existing?.cadence||'weekly'),expiry=field('Interest expires (UTC)',existing?.expires_at?new Date(existing.expires_at).toISOString().slice(0,16):'','datetime-local');
   function units(){const f=state.foods.find(x=>x.id===food.input.value);unit.input.replaceChildren(...(f?.units||[]).map(u=>el('option',u.unit,{value:u.unit})));unit.input.value=existing?.unit||offer?.unit||f?.default_unit||'';if(!unit.input.value)unit.input.value=f?.default_unit||'';}
   units();food.input.addEventListener('change',units);
-  box.append(el('p','Private interest, not an order. Test areas do not imply approved real-world coverage.'),food.label,area.label,confirmed.label,qty.label,unit.label,cadence.label,expiry.label,button(existing?'Update my interest':'Save my interest',async()=>{
+  box.append(el('p','Privately signal ongoing local demand. This does not reserve this batch. Test areas do not imply approved real-world coverage.'),food.label,area.label,confirmed.label,qty.label,unit.label,cadence.label,expiry.label,button(existing?'Update my interest':'Save my interest',async()=>{
     if(!ctx.guard(g))throw Error('Account changed. Reopen this form.');
     if(!confirmed.input.checked||!state.areas.some(a=>a.id===area.input.value))throw Error('Choose and confirm a returned area.');
     const f=state.foods.find(x=>x.id===food.input.value);if(!f?.units.some(u=>u.unit===unit.input.value))throw Error('Choose a permitted food and unit.');
@@ -17,7 +18,7 @@ export function demandDialog(offer,ctx,existing=null){
     const payload={food_id:food.input.value,area_id:area.input.value,area_confirmed:true,quantity:qty.input.value,unit:unit.input.value,cadence:cadence.input.value,expires_at,...(existing?{demand_id:existing.id,expected_confirmed_at:existing.area_confirmed_at}:{})};
     const result=await ctx.command(existing?'integrity_update_demand_v1':'integrity_save_demand_v1',payload);
     if(result&&ctx.guard(g)){closeModal();message('Private interest acknowledged. General demand summaries remain disabled.');}
-  },'primary'));modal(existing?'Update private interest':'Record private interest',box);
+  },'primary'));modal(existing?'Update private interest':'I regularly need this',box);
 }
 
 export async function interestScreen(root,ctx){
@@ -31,7 +32,7 @@ export async function interestScreen(root,ctx){
 export async function claimDetails(claim,ctx){
   const g=ctx.state.generation,r=await ctx.api.rpc('integrity_claim_detail_v1',{claim_id:claim.id});if(!ctx.guard(g))return;
   const d=r.data,box=el('div'),t=d.claim.terms;
-  box.append(el('h3',`${d.food_name} · ${d.source_name}`),el('p',d.source_active?'Source currently active':'Source currently paused'),el('h4','Agreed hold terms'),facts([['Status',d.claim.status],['Quantity',`${t.quantity} ${t.unit}`],['Price',priceText(t.price,t.unit)],['Collection reference',d.claim.collection_reference],['Collection from',time(t.collection_start)],['Collection until',time(t.collection_end)]]),el('h4','Current Source contact details'),facts(Object.entries(d.contact).map(([k,v])=>[k.replaceAll('_',' '),v])));
+  box.append(el('h3',`${d.food_name} · ${d.source_name}`),el('p',d.source_active?'Source currently active':'Source currently paused'),el('h4','Agreed hold terms'),facts([['Status',d.claim.status],['Quantity',`${t.quantity} ${t.unit}`],['Price',priceText(t.price,t.unit)],['Collection reference',d.claim.collection_reference],['Collection from',claimTime(t.collection_start)],['Collection until',claimTime(t.collection_end)],['Hold until',claimTime(t.hold_until)],['Request expires',claimTime(t.requested_until)]]),el('h4','Current Source contact details'),facts(Object.entries(d.contact).map(([k,v])=>[k.replaceAll('_',' '),v])));
   const url=safeUrl(d.contact.contact_url);if(url)box.append(el('a','Open Source website',{href:url,target:'_blank',rel:'noopener noreferrer'}));
   box.append(el('p','Contact details are current; the hold terms above are the frozen agreement. Test holds are not real collection arrangements.'));modal('Your collection',box);
 }

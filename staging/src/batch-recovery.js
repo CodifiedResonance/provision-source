@@ -1,4 +1,5 @@
-// A draft's two operation IDs are durable. Recovery never invents either ID.
+// Exact recovery preserves IDs. Explicit correction closes the old immutable
+// publication attempt before saving a new ID for the same physical batch.
 export const batchIncomplete=d=>Boolean(d.lotId&&d.baseRevision===0);
 export function publicationPayload(d,source){const f=d.form;return {source_id:source,lot_id:d.lotId,expected_revision:d.baseRevision,physical_quantity:f.quantity,price:f.price,lifecycle:f.lifecycle,pressure:f.pressure,visibility:f.visibility,reservable:f.reservable,listing_expires_at:f.listingExpiresAt,collection_start:f.collectionStart,collection_end:f.collectionEnd,...(f.noteTouched||d.baseRevision===0?{note:f.note||null}:{})};}
 function check(outbox,user,guard){if(outbox.identity()!==user||!guard())throw Error('Account or Source changed. Your draft is safe; reopen it in the original account.');}
@@ -19,9 +20,9 @@ async function recoverMissingDraft(store,outbox,d,{user,source,guard,checkServer
   let row=await store.get('outbox',user,source,d.publishId);check(outbox,user,guard);
   if(!row)throw missing();
   if(!['integrity_publish_v1','integrity_publish_v2'].includes(row.name))throw Error('Saved operation does not belong to this batch.');
-  if(checkServer&&row.status!=='published')row=await outbox.reconcile(row);
+  if(checkServer&&row.status!=='committed')row=await outbox.reconcile(row);
   check(outbox,user,guard);
-  if(row.status!=='published'||!row.result)throw missing();
+  if(row.status!=='committed'||!row.result)throw missing();
   // The caller can predate the create acknowledgement in another tab. Its exact
   // publication ID still identifies the batch; no draft or operation is created.
   const original=JSON.parse(row.payload);
@@ -35,9 +36,9 @@ export async function recoverBatchDraft(store,outbox,d,{user,source,guard=()=>tr
   for(const [id,name] of [[d.createId,'integrity_create_lot_v1'],[d.publishId,'integrity_publish_v2']]){
     let row=await store.get('outbox',user,source,id);if(!row)continue;
     if(row.name!==name&&!(id===d.publishId&&row.name==='integrity_publish_v1'))throw Error('Saved operation does not belong to this batch.');
-    if(checkServer&&row.status!=='published'&&(row.attempted||['attention','sending'].includes(row.status)))row=await outbox.reconcile(row);
+    if(checkServer&&row.status!=='committed'&&(row.attempted||['uncertain','sending'].includes(row.status)))row=await outbox.reconcile(row);
     check(outbox,user,guard);
-    if(row.status!=='published')continue;
+    if(row.status!=='committed')continue;
     if(id===d.createId)d=await adoptCreated(store,d,row,user,source);
     else {assertAcknowledgedForm(d,row,source);await store.acknowledgeDraft(user,source,d.id,d.publishId,d.localVersion);return {draft:null,result:row.result};}
   }
@@ -58,8 +59,14 @@ export async function continueBatchPublication(store,outbox,d,{user,source,guard
   check(outbox,user,guard);await onCreated(d);
   let publish=await store.get('outbox',user,source,d.publishId);
   if(!publish)publish=await outbox.prepare(user,source,'integrity_publish_v2',publicationPayload(d,source),d.publishId);
-  if(publish&&allowCorrection&&!sameValue(JSON.parse(publish.payload),{...publicationPayload(d,source),operation_id:d.publishId}))publish=await outbox.amendRejectedPublication(publish,publicationPayload(d,source));
-  if(publish.status==='published')assertAcknowledgedForm(d,publish,source);
+  if(publish.status==='closed'||(allowCorrection&&!sameValue(JSON.parse(publish.payload),{...publicationPayload(d,source),operation_id:d.publishId}))){
+    if(!allowCorrection)throw Error('Review the corrected draft before closing its earlier attempt.');
+    await outbox.close(publish);check(outbox,user,guard);
+    const previousId=d.publishId;
+    d=await store.saveDraft(user,source,d.id,{...d,publishId:crypto.randomUUID(),closedPublicationIds:[...(d.closedPublicationIds||[]),previousId]},d.localVersion);
+    publish=await outbox.prepare(user,source,'integrity_publish_v2',publicationPayload(d,source),d.publishId);
+  }
+  if(publish.status==='committed')assertAcknowledgedForm(d,publish,source);
   onProgress('publishing');
   const result=await outbox.send(publish,{reviewed:true});check(outbox,user,guard);
   assertAcknowledgedForm(d,await store.get('outbox',user,source,d.publishId),source);

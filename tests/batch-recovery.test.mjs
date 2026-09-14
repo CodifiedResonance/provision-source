@@ -17,6 +17,7 @@ async function fixture(){
   let result;
   if(name==='integrity_create_lot_v1'){lots++;result=envelope({lot_id:lot,revision:0});committed.set(p.operation_id,result);if(loseCreate){loseCreate=false;throw new ApiError('CONNECTION_UNCONFIRMED');}}
   else if(name==='integrity_publish_v2'){assert.equal(p.lot_id,lot);publications++;result=envelope({id:offer,lot_id:lot,revision:1,food_name:'Potatoes',visibility:'public'});committed.set(p.operation_id,result);if(losePublish){losePublish=false;throw new ApiError('CONNECTION_UNCONFIRMED');}}
+  else if(name==='integrity_member_offer_v1')return [...committed.values()].find(r=>r.data.visibility==='public');
   else if(name==='integrity_offers_v1')return envelope({items:[...committed.values()].map(r=>r.data).filter(d=>d.visibility==='public')});
   return result;
  }};
@@ -29,7 +30,7 @@ async function create(f){const d=f.draft;const row=await f.outbox.prepare(user,s
 test('mobile partial commit: one lot, missing publish is checked and retried with its exact ID; consumer sees one offer',async()=>{
  const f=await fixture();await create(f);const d=await f.store.saveDraft(user,source,f.draft.id,{...f.draft,lotId:lot},f.draft.localVersion);
  let row=await f.outbox.prepare(user,source,'integrity_publish_v2',publicationPayload(d,source),publishId);
- await f.store.put('outbox',user,source,publishId,{...row,status:'attention',attempted:true,error:'INVALID_REQUEST'});
+ await f.store.put('outbox',user,source,publishId,{...row,status:'attention',attempted:true,error:'CONNECTION_UNCONFIRMED'});
  const checked=await f.outbox.reconcile(row);assert.equal(checked.safeToRetry,true);assert.equal(checked.id,publishId);assert.equal(checked.payload,row.payload);
  assert.ok(await f.store.get('drafts',user,source,d.id));
  await continueBatchPublication(f.store,f.outbox,d,options);
@@ -60,7 +61,7 @@ test('timeout, permission denial and HTTP404 in lookup are not proof of nonexist
 test('pending server operation remains blocked without a replacement ID',async()=>{
  const f=await fixture();let row=await f.outbox.prepare(user,source,'integrity_create_lot_v1',{},createId);await f.store.put('outbox',user,source,createId,{...row,status:'attention',attempted:true});
  f.api.rpc=async()=>envelope({operation_id:createId,action:'integrity_create_lot_v1',status:'pending'});
- await assert.rejects(f.outbox.send(row),/not confirmed/);assert.deepEqual(f.counts(),{lots:0,publications:0});assert.equal((await f.store.list('outbox',user)).length,1);
+ await assert.rejects(f.outbox.send(row),/must be checked/);assert.deepEqual(f.counts(),{lots:0,publications:0});assert.equal((await f.store.list('outbox',user)).length,1);
 });
 test('account switch during operation lookup retains the draft and prevents replay',async()=>{
  const f=await fixture();f.loseCreate();await assert.rejects(create(f));const rpc=f.api.rpc.bind(f.api);f.api.rpc=async(n,p)=>{const r=await rpc(n,p);if(n==='integrity_operation_v1')f.switchUser();return r;};
@@ -82,32 +83,32 @@ async function rejectedFixture(code='INVALID_PRICE'){
  await f.store.put('outbox',user,source,publishId,{...row,status:'attention',attempted:true,error:code});
  return {...f,d,row};
 }
-test('rejected price can be corrected only after exact absence check, retaining batch and operation IDs',async()=>{
+test('rejected price can be corrected only after exact absence check, retaining batch but explicitly closing the old immutable publication operation',async()=>{
  const f=await rejectedFixture();const checked=await f.outbox.reconcile(f.row);assert.equal(publicationEditable(checked),true);
  const corrected=await f.store.saveDraft(user,source,f.d.id,{...f.d,form:{...f.d.form,price:{status:'priced',amount:'2.50',currency:'GBP',basis:'per_kg',bundle_quantity:null,package_quantity:null,package_unit:null}}},f.d.localVersion);
- const rpc=f.api.rpc.bind(f.api);f.api.rpc=async(n,p)=>{if(n==='integrity_publish_v2'){assert.ok(await f.store.get('drafts',user,source,f.d.id));assert.equal(p.price.amount,'2.50');assert.equal(p.operation_id,publishId);}return rpc(n,p);};
+ const rpc=f.api.rpc.bind(f.api);f.api.rpc=async(n,p)=>{if(n==='integrity_publish_v2'){assert.ok(await f.store.get('drafts',user,source,f.d.id));assert.equal(p.price.amount,'2.50');assert.notEqual(p.operation_id,publishId);}return rpc(n,p);};
  await continueBatchPublication(f.store,f.outbox,corrected,{...options,allowCorrection:true});
- assert.deepEqual(f.counts(),{lots:1,publications:1});const row=await f.store.get('outbox',user,source,publishId);assert.equal(row.corrections[0].payload,f.row.payload);assert.equal(row.corrections[0].rejection.code,'INVALID_PRICE');assert.ok(row.corrections[0].absenceCheckedAt);assert.equal(await f.store.get('drafts',user,source,f.d.id),undefined);
+ assert.deepEqual(f.counts(),{lots:1,publications:1});const row=await f.store.get('outbox',user,source,publishId);assert.equal(row.payload,f.row.payload);assert.equal(row.status,'closed');assert.equal(row.error,'INVALID_PRICE');assert.equal(await f.store.get('drafts',user,source,f.d.id),undefined);
 });
-test('uncertain publication cannot be amended even when a lookup currently returns absent',async()=>{
- const f=await rejectedFixture('CONNECTION_UNCONFIRMED');const checked=await f.outbox.reconcile(f.row);assert.equal(publicationEditable(checked),false);
- await assert.rejects(f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),physical_quantity:'15'}),/still uncertain/);assert.equal((await f.store.get('outbox',user,source,publishId)).payload,f.row.payload);assert.deepEqual(f.counts(),{lots:1,publications:0});
+test('an absent uncertain publication can close explicitly, but can never reuse its ID with changed values',async()=>{
+ const f=await rejectedFixture('CONNECTION_UNCONFIRMED');const checked=await f.outbox.reconcile(f.row);assert.equal(publicationEditable(checked),true);
+ await assert.rejects(f.outbox.enqueue(user,source,publishId,'integrity_publish_v2',{...publicationPayload(f.d,source),physical_quantity:'15'}),/exact payload/);
+ await f.outbox.close(checked);assert.equal((await f.store.get('outbox',user,source,publishId)).payload,f.row.payload);
 });
-test('correction rechecks absence under the operation lock and rejects a failed lookup',async()=>{
- const f=await rejectedFixture();const checked=await f.outbox.reconcile(f.row);f.lookupError(new ApiError('FORBIDDEN',403));
- await assert.rejects(f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),physical_quantity:'15'}),/FORBIDDEN/);assert.equal((await f.store.get('outbox',user,source,publishId)).payload,f.row.payload);
+test('closing an uncertain correction rechecks absence under the operation lock and rejects a failed lookup',async()=>{
+ const f=await rejectedFixture('CONNECTION_UNCONFIRMED');f.lookupError(new ApiError('FORBIDDEN',403));
+ await assert.rejects(f.outbox.close(f.row),/FORBIDDEN/);assert.equal((await f.store.get('outbox',user,source,publishId)).payload,f.row.payload);
 });
 test('correction adopts an intervening commit without replacing its payload or losing newer edits',async()=>{
- const f=await rejectedFixture();const checked=await f.outbox.reconcile(f.row);await f.api.rpc('integrity_publish_v2',JSON.parse(f.row.payload));
- const adopted=await f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),physical_quantity:'15'});assert.equal(adopted.status,'published');assert.equal(adopted.payload,f.row.payload);assert.deepEqual(f.counts(),{lots:1,publications:1});
+ const f=await rejectedFixture('CONNECTION_UNCONFIRMED');await f.api.rpc('integrity_publish_v2',JSON.parse(f.row.payload));
+ await assert.rejects(f.outbox.close(f.row),/committed/);const adopted=await f.store.get('outbox',user,source,publishId);assert.equal(adopted.status,'committed');assert.equal(adopted.payload,f.row.payload);
  const corrected=await f.store.saveDraft(user,source,f.d.id,{...f.d,form:{...f.d.form,quantity:'15'}},f.d.localVersion);
  await assert.rejects(continueBatchPublication(f.store,f.outbox,corrected,{...options,allowCorrection:true}),/newer edits/);assert.equal((await f.store.get('drafts',user,source,f.d.id)).form.quantity,'15');
 });
-test('correction rejects stale-tab payload and changing the batch or revision',async()=>{
- const f=await rejectedFixture();const checked=await f.outbox.reconcile(f.row);
- await assert.rejects(f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),lot_id:'different'}),/same batch/);
- await f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),physical_quantity:'15'});
- await assert.rejects(f.outbox.amendRejectedPublication(checked,{...publicationPayload(f.d,source),physical_quantity:'10'}),/another tab/);
+test('closed IDs and stale-tab changed payloads cannot be reused',async()=>{
+ const f=await rejectedFixture();await f.outbox.close(f.row);
+ await assert.rejects(f.outbox.enqueue(user,source,publishId,'integrity_publish_v2',JSON.parse(f.row.payload)),/closed/);
+ await assert.rejects(f.outbox.enqueue(user,source,publishId,'integrity_publish_v2',{...publicationPayload(f.d,source),physical_quantity:'10'}),/exact payload/);
 });
 
 test('a stale confirmation adopts the retained acknowledgement after another tab removed the draft',async()=>{

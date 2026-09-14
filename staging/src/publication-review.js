@@ -13,7 +13,7 @@ function failureText(error){
 }
 export function publicationReview(draft,ctx,{user,source,guard,allowCorrection,onEdit}){
  const f=draft.form,review=el('div'),partial=el('h3',batchIncomplete(draft)?'Batch created · publication not completed':'Ready to publish'),safe=el('p','Your draft is safe.'),status=el('p','Nothing has been sent from this confirmation yet.',{role:'status','aria-live':'polite',tabindex:'-1',class:'publication-status'}),problem=el('div'),actions=el('div',null,{class:'actions'});
- const guidance=el('p','Your quantity is already entered. Publish this batch to submit these details, or use Edit details to change them.');
+ const guidance=el('p','Your quantity is already entered. Publishing corrected details closes any failed local attempt and starts a new attempt for this same batch.');
  let sending=false,acknowledged=false;
  const dialog=document.querySelector('#dialog'),close=document.querySelector('#closeDialog');
  const cancel=event=>{if(sending)event.preventDefault();};dialog.addEventListener('cancel',cancel);

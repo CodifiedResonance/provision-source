@@ -62,8 +62,8 @@ test('quota/storage failure prevents sending',async()=>{
 test('lost response replays identical values; never generates a new operation',async()=>{
  const s=db(),calls=[];let first=true;const api={validate(){},async rpc(n,p){if(n==='integrity_operation_v1')return envelope(null);calls.push([n,JSON.stringify(p)]);if(first){first=false;throw new ApiError('CONNECTION_UNCONFIRMED');}return envelope({physical_quantity:'17',held_quantity:'0',claimable_quantity:'17'});}};
  const b=new Outbox(s,api,{identity:()=>user,lock:locks}),row=await b.enqueue(user,source,uuid,'integrity_collect_claim_v1',{operation_id:uuid,quantity:'3.0'});
- await assert.rejects(b.send(row));const retry=await s.get('outbox',user,source,uuid);assert.equal(retry.status,'saved');
- const result=await b.send(retry);assert.deepEqual(calls[0],calls[1]);assert.equal(result.data.physical_quantity,'17');assert.equal((await s.get('outbox',user,source,uuid)).status,'published');
+ await assert.rejects(b.send(row));const retry=await s.get('outbox',user,source,uuid);assert.equal(retry.status,'uncertain');
+ const result=await b.send(retry);assert.deepEqual(calls[0],calls[1]);assert.equal(result.data.physical_quantity,'17');assert.equal((await s.get('outbox',user,source,uuid)).status,'committed');
  await assert.rejects(b.enqueue(user,source,uuid,'integrity_collect_claim_v1',{operation_id:uuid,quantity:'3'}),/exact payload/);
 });
 test('a new identity cannot submit an earlier operator queue',async()=>{
@@ -73,7 +73,7 @@ test('repeated submission reuses an unresolved operation; edited payload cannot 
  const s=db(),b=new Outbox(s,{validate(){},rpc:async()=>{throw new ApiError('CONNECTION_UNCONFIRMED');}},{identity:()=>user,lock:locks});
  const first=await b.prepare(user,source,'claim',{offer_id:uuid,quantity:'3.0'});await assert.rejects(b.send(first));
  const again=await b.prepare(user,source,'claim',{quantity:'3.0',offer_id:uuid});assert.equal(again.id,first.id);assert.equal(again.payload,first.payload);
- await assert.rejects(b.prepare(user,source,'claim',{offer_id:uuid,quantity:'4'}),/unresolved/);
+ await assert.rejects(b.prepare(user,source,'claim',{offer_id:uuid,quantity:'4'}),/checked and closed/);
 });
 test('account switch while persisting sending state prevents the network call',async()=>{
  const s=db();let current=user,called=false;const b=new Outbox(s,{validate(){},rpc:async()=>{called=true;}},{identity:()=>current,lock:locks});const r=await b.enqueue(user,source,uuid,'write',{});
@@ -83,7 +83,7 @@ test('account switch while persisting sending state prevents the network call',a
 test('old unsent stock requires explicit review; role denial remains needs-attention',async()=>{
  const s=db(),api={validate(){},rpc:async()=>{throw new ApiError('FORBIDDEN',403);}},b=new Outbox(s,api,{identity:()=>user,lock:locks});
  let r=await b.enqueue(user,source,uuid,'write',{});await s.put('outbox',user,source,uuid,{...r,createdAt:0});
- await assert.rejects(b.send(r),/Review/);await assert.rejects(b.send(r,{reviewed:true}),/FORBIDDEN/);assert.equal((await s.get('outbox',user,source,uuid)).status,'attention');
+ await assert.rejects(b.send(r),/Review/);await assert.rejects(b.send(r,{reviewed:true}),/FORBIDDEN/);assert.equal((await s.get('outbox',user,source,uuid)).status,'rejected');
 });
 test('exact wire envelope and restricted RPC surface',async()=>{
  const seen=[],api=new IntegrityApi(config,{fetcher:async(u,o)=>{seen.push([u,o]);return Response.json(envelope(health));}});
