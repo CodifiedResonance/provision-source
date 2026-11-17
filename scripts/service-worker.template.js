@@ -7,7 +7,7 @@ const HOME=new URL('./index.html',self.registration.scope).href;
 self.addEventListener('install',event=>event.waitUntil((async()=>{
   const cache=await caches.open(CACHE);
   try{await Promise.all(SHELL.map(async p=>{
-    const url=new URL(p,self.registration.scope).href,response=await fetch(new Request(url,{cache:'reload',credentials:'omit'}));
+    const url=new URL(p,self.registration.scope).href,response=await fetch(new Request(url,{cache:'reload',credentials:'same-origin'}));
     if(!response.ok||response.redirected||response.type==='opaque')throw Error('Incomplete shell');
     const type=response.headers.get('content-type')||'';
     if(url.endsWith('.html')&&!type.includes('text/html'))throw Error('Invalid entrypoint');

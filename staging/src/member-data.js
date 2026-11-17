@@ -1,17 +1,17 @@
 // Member reads are fresh transactions, never a consistent backup or inventory engine.
 export async function readPages(api,name,request,{guard=()=>true,key='id',maxPages=1000}={}){
-  let cursor=null,first=null,last=null,pages=0;const items=new Map(),seen=new Set();
+  let cursor=null,first=null,last=null,pages=0,nextExpiry=null;const items=new Map(),seen=new Set();
   do{
     if(!guard())throw Error('Account or Source changed. Restart this read.');
     if(pages>=maxPages)throw Error('Read limit reached. No complete export was produced.');
     const r=await api.page(name,request,cursor);
     if(!guard())throw Error('Account or Source changed. No private result was retained.');
-    first??=r.server_time;last=r.server_time;pages++;
+    first??=r.server_time;last=r.server_time;pages++;if(r.data.next_expiry_at&&(!nextExpiry||Date.parse(r.data.next_expiry_at)<Date.parse(nextExpiry)))nextExpiry=r.data.next_expiry_at;
     for(const item of r.data.items){if(!item[key])throw Error('Record identity missing.');items.set(item[key],item);}
     cursor=r.data.next_cursor;
     if(cursor!==null){if(seen.has(cursor))throw Error('Pagination did not advance. Refresh before trying again.');seen.add(cursor);}
   }while(cursor!==null);
-  return {items:[...items.values()],pages,started_at:first,completed_at:last,consistency:'Fresh transactions per page; not a point-in-time snapshot'};
+  return {items:[...items.values()],next_expiry_at:nextExpiry,pages,started_at:first,completed_at:last,consistency:'Fresh transactions per page; not a point-in-time snapshot'};
 }
 export async function memberExport(api,sourceId,guard){
   const catalogue=await readPages(api,'integrity_catalogue_v1',{source_id:sourceId},{guard});

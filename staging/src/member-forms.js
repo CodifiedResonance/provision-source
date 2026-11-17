@@ -1,4 +1,4 @@
-import {el,button,field,select,check,modal,closeModal,message} from './dom.js';
+import {el,button,field,select,check,modal,closeModal,message,fieldError} from './dom.js';
 import {coordinate,openingHours,changedFields,DAYS} from './member-data.js';
 
 export function profileForm(p,ctx){
@@ -6,6 +6,7 @@ export function profileForm(p,ctx){
   for(const [key,name]of [['name','Business name'],['legal_name','Legal name'],['description','Description'],['public_email','Public email'],['public_phone','Public phone'],['contact_url','Website'],['address_line','Address'],['locality','Locality'],['postcode','Postcode'],['collection_notes','Collection instructions'],['logo_path','Existing logo reference'],['latitude','Latitude'],['longitude','Longitude']]){
     fields[key]=field(name,p[key]??'');box.append(fields[key].label);
   }
+  box.append(el('p','This is the Source collection location, not the origin of its food. Address and postcode do not automatically resolve coordinates in this staging contract. Leave both coordinates blank when unknown.'),button('Use this device location for the Source',()=>new Promise((resolve,reject)=>{if(!navigator.geolocation){reject(Error('Device location is unavailable. Enter coordinates or leave them unknown.'));return;}navigator.geolocation.getCurrentPosition(p=>{if(!ctx.guard(g)){resolve();return;}fields.latitude.input.value=String(p.coords.latitude);fields.longitude.input.value=String(p.coords.longitude);message('Coordinates filled. Check that this is the actual collection location, then save the profile.');resolve();},()=>reject(Error('Location unavailable. Enter coordinates or leave both blank.')),{timeout:10000,maximumAge:0});})),button('Leave Source coordinates unknown',()=>{fields.latitude.input.value='';fields.longitude.input.value='';}));
   const hours=el('details'),known=check('Opening hours supplied',p.opening_hours!==null),timezone=field('Opening-hours time zone',p.opening_hours?.timezone||''),dayFields={};
   hours.append(el('summary','Opening hours'),known.label,timezone.label,el('p','For each day: 09:00-12:00, 13:00-17:00. Use closed for a confirmed closed day; leave blank when unknown. Overnight periods retain their stated times.'));
   for(const day of DAYS){const spans=p.opening_hours?.[day],f=field(day,spans?(spans.length?spans.map(s=>`${s.open}-${s.close}`).join(', '):'closed'):'');dayFields[day]=f;hours.append(f.label);}
@@ -14,6 +15,7 @@ export function profileForm(p,ctx){
     if(!ctx.guard(g))throw Error('Account or Source changed. Reopen the profile.');
     const edited=Object.fromEntries(Object.entries(fields).map(([k,f])=>[k,f.input.value||null]));
     edited.latitude=coordinate(fields.latitude.input.value,90);edited.longitude=coordinate(fields.longitude.input.value,180);
+    if((edited.latitude===null)!==(edited.longitude===null))fieldError(fields.latitude,'Supply both latitude and longitude, or leave both unknown.');
     edited.opening_hours=known.input.checked?openingHours(timezone.input.value,Object.fromEntries(DAYS.map(day=>[day,dayFields[day].input.value]))):null;
     const patch=changedFields(p,edited);if(!Object.keys(patch).length){message('No profile changes to save.');return;}
     const result=await ctx.command('integrity_update_profile_v1',{source_id:p.source_id,expected_revision:p.revision,patch},p.source_id);

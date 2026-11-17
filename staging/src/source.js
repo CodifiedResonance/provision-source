@@ -3,7 +3,8 @@ import {formPrice,firstPublicationIssue} from './publication-validation.js';
 import {publicationEditable} from './storage.js';
 import {batchIncomplete,recoverBatchDraft,publicationPayload} from './batch-recovery.js';
 import {offerForm,mergePlan} from './draft-merge.js';
-import {memberExport} from './member-data.js';
+import {expiring,photoError} from './pilot-ux.js';
+import {memberExport,readPages} from './member-data.js';
 import {profileForm,physicalDatesForm} from './member-forms.js';
 import {time,priceText,emptyDates,UNITS,expired} from './domain.js';
 import {el,button,field,select,check,modal,closeModal,message,empty,facts,fieldError} from './dom.js';
@@ -16,14 +17,15 @@ export async function sourceScreen(root,ctx){
   chooser.input.addEventListener('change',()=>{state.sourceId=chooser.input.value||null;state.generation++;ctx.refresh();});toolbar.append(chooser.label);root.append(toolbar);
   if(!state.sourceId)return ()=>{};
   const sourceId=state.sourceId,membership=state.memberships.find(m=>m.source_id===sourceId);if(!membership)return ()=>{};const canEdit=membership.role!=='viewer',canManage=['owner','admin'].includes(membership.role);let profile,response;
-  try{[profile,response]=await Promise.all([api.rpc('integrity_profile_v1',{source_id:sourceId}),api.page('integrity_catalogue_v1',{source_id:sourceId})]);}
+  try{[profile,response]=await Promise.all([api.rpc('integrity_profile_v1',{source_id:sourceId}),readPages(api,'integrity_catalogue_v1',{source_id:sourceId},{guard:()=>ctx.guard(g)})]);}
   catch(e){if(ctx.guard(g))root.append(empty('Source access could not be confirmed','No private catalogue is displayed. Your saved drafts remain scoped to the original account and Source.'));return ()=>{};}
   if(!ctx.guard(g))return ()=>{};
-  const p=profile.data,offers=response.data.items;state.sourceExpiry=response.data.next_expiry_at;
+  const p=profile.data,offers=response.items;state.sourceExpiry=response.next_expiry_at;
   await store.put('server',user,sourceId,'catalogue',{items:offers,serverTime:response.server_time});
   const drafts=await store.list('drafts',user,sourceId);if(!ctx.guard(g))return ()=>{};
   root.append(canManage?button(p.name,()=>profileForm(p,ctx)):el('h2',p.name),el('p',p.active?'Source active':'Source paused · your catalogue remains manageable'),el('p',`Your role: ${membership.role} · business control: ${membership.business_control}`,{class:'muted'}));
   if(canEdit)toolbar.append(button('Add a new batch',()=>edit(null,ctx),'primary'));toolbar.append(button('Export stock/history',()=>exportCatalogue(offers,p,ctx)),button('Print current stock',()=>printStock(offers,p)));
+  const ending=expiring(offers.filter(o=>o.visibility==='public'&&o.source_active),o=>o.listing_expires_at,api.now());if(ending.length){const attention=el('section',null,{class:'card'});attention.append(el('h3',`${ending.length} publication${ending.length===1?'':'s'} expire within 24 hours`));for(const o of ending)attention.append(el('p',`${o.food_name} · ${time(o.listing_expires_at)}`),button(canEdit?'Review publication':'View expiry',()=>canEdit?edit(o,ctx):modal('Publication expiry',el('p',`${o.food_name} · ${time(o.listing_expires_at)}`))));root.append(attention);}
   const cards=el('div',null,{class:'cards'});root.append(cards);
   function renderCards(){cards.replaceChildren();
   for(const o of offers){const c=el('article',null,{class:'card'}),saved=drafts.find(d=>d.id===o.lot_id),actions=el('div',null,{class:'actions'});
@@ -36,7 +38,7 @@ export async function sourceScreen(root,ctx){
   if(!offers.length&&!drafts.length)cards.append(empty('No catalogue items on this page','Expired batches remain manageable when returned by the member catalogue.'));
   }
   renderCards();
-  let cursor=response.data.next_cursor;const seen=new Set();
+  let cursor=null;const seen=new Set();
   const more=button('Load more catalogue items',async()=>{
     const r=await api.page('integrity_catalogue_v1',{source_id:sourceId},cursor);if(!ctx.guard(g)||!cards.isConnected)return;
     if(r.data.next_cursor&&(seen.has(r.data.next_cursor)||r.data.next_cursor===cursor))throw Error('Catalogue pagination did not advance. Refresh before continuing.');
@@ -105,32 +107,49 @@ function reconfirm(o,ctx){const box=el('div'),expiry=dateField('New declaration 
 function countZero(o,ctx){reason('Count physical stock as zero',r=>ctx.command('integrity_reconcile_stock_v1',{source_id:o.source_id,offer_id:o.id,expected_revision:o.revision,counted_quantity:'0',count_observed_at:new Date(ctx.api.now()).toISOString(),reason:r},o.source_id));}
 function reason(title,action){const box=el('div'),f=field('Reason','','textarea');box.append(f.label,button('Confirm',async()=>{if(!f.input.value.trim())throw Error('Provide a reason.');await action(f.input.value);closeModal();},'primary'));modal(title,box);}
 async function evidenceForm(o,ctx){
-  if(!ctx.api.health?.capabilities.evidence_upload){message('Evidence uploads are currently unavailable.');return;}
-  const {store,state,api,CONFIG}=ctx,user=state.session.user.id,source=o.source_id,box=el('div'),file=field('JPEG, PNG or WebP photo (up to 10 MB)','','file'),caption=field('Caption'),observed=dateField('When was it observed? (optional, your local time)',null),preview=el('div');file.input.accept='image/jpeg,image/png,image/webp';
-  let url=null;file.input.addEventListener('change',()=>{if(url)URL.revokeObjectURL(url);preview.replaceChildren();const f=file.input.files[0];if(f&&['image/jpeg','image/png','image/webp'].includes(f.type)){url=URL.createObjectURL(f);preview.append(el('img',null,{src:url,alt:'Private evidence preview',class:'evidence-image'}));}});
-  box.append(el('p','Preview for personal information before uploading. Sharing is a separate step after server sanitisation. HEIC: export a JPEG first. PDFs are not accepted by this photo flow.'),file.label,preview,caption.label,observed.label,button('Save file privately on this device',async()=>{
-    const f=file.input.files[0];if(!f||f.size>10485760||!['image/jpeg','image/png','image/webp'].includes(f.type))throw Error('Choose a JPEG, PNG or WebP image under 10 MB.');
-    const id=crypto.randomUUID(),hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',await f.arrayBuffer()))].map(n=>n.toString(16).padStart(2,'0')).join('');
-    await store.put('files',user,source,id,{blob:f,eventId:o.latest_event_id,caption:caption.input.value||null,observedAt:iso(observed.input.value),checksum:hash,beginId:crypto.randomUUID(),finalizeId:crypto.randomUUID(),publishId:crypto.randomUUID(),status:'pending'});
-    closeModal();message('File saved on this device · evidence pending. Reopen Evidence to send.');
+  const {store,state,api,CONFIG}=ctx,user=state.session?.user.id,source=o.source_id,g=state.generation;
+  const valid=()=>ctx.guard(g)&&state.session?.user.id===user&&state.sourceId===source;
+  if(!user||!valid())throw Error('Select the Source in your signed-in account first.');
+  const box=el('div'),file=field('JPEG, PNG or WebP photo (up to 10 MB)','','file'),caption=field('Caption'),observed=dateField('When was it observed? (optional, your local time)',null),preview=el('div'),urls=new Set();file.input.accept='image/jpeg,image/png,image/webp';
+  file.input.addEventListener('change',()=>{for(const u of urls)URL.revokeObjectURL(u);urls.clear();preview.replaceChildren();const f=file.input.files[0],error=photoError(f);if(error){preview.append(el('p',error,{role:'alert'}));return;}const url=URL.createObjectURL(f);urls.add(url);preview.append(el('img',null,{src:url,alt:'Private evidence preview',class:'evidence-image'}));});
+  box.append(el('p','Photos support a declaration; they do not verify it. Preview for personal information. Observed time is your assertion; uploaded time comes from the server. HEIC must be exported as JPEG first.'),file.label,preview,caption.label,observed.label,button('Save photo on this device',async()=>{
+    const f=file.input.files[0],error=photoError(f);if(error)fieldError(file,error);if(!valid())throw Error('Account or Source changed.');
+    const at=iso(observed.input.value);if(at&&Date.parse(at)>api.now())fieldError(observed,'Observed time cannot be in the future.');
+    const id=crypto.randomUUID(),hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',await f.arrayBuffer()))].map(n=>n.toString(16).padStart(2,'0')).join('');if(!valid())return;
+    await store.put('files',user,source,id,{blob:f,eventId:o.latest_event_id,caption:caption.input.value||null,observedAt:at,checksum:hash,beginId:crypto.randomUUID(),finalizeId:crypto.randomUUID(),publishId:crypto.randomUUID(),status:'pending'});
+    if(valid())await evidenceForm(o,ctx);
   },'primary'));
-  const saved=await store.list('files',user,source);
-  for(const record of saved.filter(r=>r.eventId===o.latest_event_id)){const c=el('article',null,{class:'card'});c.append(el('h3',record.caption||'Saved photo'),el('p',record.status==='linked'?'Private evidence linked':'Evidence pending'),button('Upload / retry exact attachment',async()=>{
-    if(state.session?.user.id!==user)throw Error('Account changed.');
-    const begin=await ctx.command('integrity_begin_evidence_v1',{source_id:source,event_id:record.eventId,attachment_id:record.id,media_type:record.blob.type,bytes:record.blob.size,checksum_sha256:record.checksum,caption:record.caption,declared_observed_at:record.observedAt},source,{operationId:record.beginId});if(!begin)return;
-    const current=await api.rpc('integrity_evidence_status_v1',{source_id:source,attachment_id:record.id});
-    if(current.data.status==='pending'){
-      const r=await fetch(`${CONFIG.url}/functions/v1/integrity-evidence/upload/${record.id}`,{method:'POST',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(95000),headers:{apikey:CONFIG.publishableKey,Authorization:'Bearer '+state.session.access_token,'x-source-id':source,'Content-Type':record.blob.type},body:record.blob});
-      if(!r.ok)throw Error('Upload not confirmed. Saved file retained for retry.');
-    }
-    const result=await ctx.command('integrity_finalize_evidence_v1',{source_id:source,attachment_id:record.id},source,{operationId:record.finalizeId});if(!result)return;
-    record.status=result.status;await store.put('files',user,source,record.id,record);closeModal();message('Evidence linked privately. Reopen Evidence to preview the sanitised image before sharing.');
-  }));
-    if(record.status==='linked')c.append(button('Preview sanitised photo & choose sharing',async()=>{
-      const blob=await api.evidence(record.id),imageUrl=URL.createObjectURL(blob),confirm=el('div');confirm.append(el('img',null,{src:imageUrl,alt:record.caption||'Sanitised evidence',class:'evidence-image'}),el('p','Check this image for personal information. Sharing does not verify its contents. Downloaded copies cannot be recalled.'),button('Share this photo publicly',async()=>{await ctx.command('integrity_publish_evidence_v1',{source_id:source,attachment_id:record.id},source,{operationId:record.publishId});closeModal();},'primary'),button('Withdraw public sharing',()=>reason('Withdraw evidence',r=>ctx.command('integrity_withdraw_evidence_v1',{source_id:source,attachment_id:record.id,reason:r},source))));modal('Review public sharing',confirm,()=>URL.revokeObjectURL(imageUrl));
+  const saved=await store.list('files',user,source);if(!valid())return;
+  for(const record of saved.filter(r=>r.eventId===o.latest_event_id)){
+    const c=el('article',null,{class:'card'}),status=el('p','Saved on this device · server status not yet checked',{role:'status'});c.append(el('h3',record.caption||'Saved photo'),status,facts([['Observed',time(record.observedAt)]]));
+    const persist=async d=>{if(!valid())throw Error('Account or Source changed.');record.status=d.status;record.public=d.public;record.uploadedAt=d.uploaded_at;await store.put('files',user,source,record.id,record);status.textContent=`${d.status} · ${d.public?'publicly shared':'private'} · uploaded ${time(d.uploaded_at)}`;return d;};
+    const current=async()=>persist((await api.rpc('integrity_evidence_status_v1',{source_id:source,attachment_id:record.id})).data);
+    c.append(button('Check current status',current),button('Upload or continue saved photo',async b=>{
+      if(!valid())throw Error('Account or Source changed.');if(!api.health?.capabilities.evidence_upload)throw Error('Uploads are currently unavailable. Your photo is saved.');
+      state.mutating++;try{
+        status.textContent='Registering saved photo…';b.textContent='Working…';
+        await ctx.command('integrity_begin_evidence_v1',{source_id:source,event_id:record.eventId,attachment_id:record.id,media_type:record.blob.type,bytes:record.blob.size,checksum_sha256:record.checksum,caption:record.caption,declared_observed_at:record.observedAt},source,{operationId:record.beginId});
+        let d=await current();if(['failed','withdrawn','quarantined'].includes(d.status))throw Error(`Photo is ${d.status}. No automatic replacement was made.`);
+        if(d.status==='pending'){
+          status.textContent='Uploading photo · keep this page open…';if(!valid())throw Error('Account changed.');
+          const r=await fetch(`${CONFIG.url}/functions/v1/integrity-evidence/upload/${record.id}`,{method:'POST',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(95000),headers:{apikey:CONFIG.publishableKey,Authorization:'Bearer '+state.session.access_token,'x-source-id':source,'Content-Type':record.blob.type},body:record.blob});
+          if(!r.ok)throw Error('Upload was not confirmed. Your saved photo is retained; check status or continue to retry the same attachment.');d=await current();
+        }
+        if(d.status!=='linked'){status.textContent='Finalising and sanitising photo…';await ctx.command('integrity_finalize_evidence_v1',{source_id:source,attachment_id:record.id},source,{operationId:record.finalizeId});d=await current();}
+        if(d.status!=='linked')throw Error(`Server reports ${d.status}. Keep this saved photo and check again.`);
+        status.textContent=`Photo linked · ${d.public?'publicly shared':'private'}. Preview the sanitised photo before sharing.`;
+      }catch(e){status.textContent='Photo not completed. Your saved file and attachment identity are retained.';throw e;}finally{state.mutating--;b.textContent='Upload or continue saved photo';}
+    }),button('Preview & manage sharing',async()=>{
+      const d=await current();if(d.status!=='linked')throw Error(`Photo is ${d.status}; a linked photo is required for preview.`);
+      const blob=await api.evidence(record.id);if(!valid())return;const u=URL.createObjectURL(blob),confirm=el('div'),result=el('p',d.public?'Publicly shared':'Private',{role:'status'});
+      confirm.append(el('img',null,{src:u,alt:record.caption||'Sanitised evidence',class:'evidence-image'}),result,el('p','Sharing does not verify the contents. Downloaded copies cannot be recalled.'));
+      if(!d.public)confirm.append(button('Share this photo publicly',async()=>{if(!valid())throw Error('Account changed.');await ctx.command('integrity_publish_evidence_v1',{source_id:source,attachment_id:record.id},source,{operationId:record.publishId});const fresh=await current();result.textContent=fresh.public?'Public sharing acknowledged':'Public sharing is not confirmed';},'primary'));
+      if(d.public){const reasonField=field('Why withdraw this evidence?','','textarea');confirm.append(reasonField.label,button('Withdraw public sharing',async()=>{if(!valid())throw Error('Account changed.');if(!reasonField.input.value.trim())fieldError(reasonField,'Provide a withdrawal reason.');await ctx.command('integrity_withdraw_evidence_v1',{source_id:source,attachment_id:record.id,reason:reasonField.input.value},source);const fresh=await current();result.textContent=fresh.public?'Withdrawal not confirmed':'Public sharing withdrawn';}));}
+      confirm.append(button('Done',()=>evidenceForm(o,ctx)));modal('Review public sharing',confirm,()=>URL.revokeObjectURL(u));
     }));box.append(c);
   }
-  modal('Evidence for '+o.food_name,box,()=>{if(url)URL.revokeObjectURL(url);});
+  if(!saved.some(r=>r.eventId===o.latest_event_id))box.append(el('p','No photos saved on this device for this declaration. Private photos from another device require a member evidence-list endpoint; they are not inferred from public evidence.'));
+  modal('Evidence for '+o.food_name,box,()=>{for(const u of urls)URL.revokeObjectURL(u);});
 }
 async function exportCatalogue(_offers,p,ctx){
   const g=ctx.state.generation,guard=()=>ctx.guard(g)&&ctx.state.sourceId===p.source_id;

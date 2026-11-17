@@ -13,7 +13,7 @@ manifest.name=(app==='source'?'PROVISION SOURCE':'PROVISION')+' · STAGING';mani
 manifest.description='Isolated Provision staging preview. No real collection arrangements.';
 fs.writeFileSync('dist/manifest.webmanifest',JSON.stringify(manifest,null,2)+'\n');
 const csp="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self' https://qaaskvbhssonbktdjdki.supabase.co wss://qaaskvbhssonbktdjdki.supabase.co; font-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
-fs.writeFileSync('dist/_headers',`/*\n  Content-Security-Policy: ${csp}\n  Referrer-Policy: no-referrer\n  X-Content-Type-Options: nosniff\n  Permissions-Policy: camera=(), microphone=(), geolocation=()\n  Cache-Control: no-cache\n/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n`);
+fs.writeFileSync('dist/_headers',`/*\n  Content-Security-Policy: ${csp}\n  Referrer-Policy: no-referrer\n  X-Content-Type-Options: nosniff\n  Permissions-Policy: camera=(), microphone=(), geolocation=(self)\n  Cache-Control: no-cache\n/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n`);
 const shell=files('dist').filter(p=>!['_headers','service-worker.js','release.json'].includes(path.basename(p))).map(p=>'./'+path.relative('dist',p));
 const hash=createHash('sha256');hash.update(fs.readFileSync('scripts/service-worker.template.js'));for(const p of [...shell].sort())hash.update(fs.readFileSync(path.join('dist',p)));
 const revision=hash.digest('hex').slice(0,20);
