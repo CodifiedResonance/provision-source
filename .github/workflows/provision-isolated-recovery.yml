@@ -1,0 +1,80 @@
+name: Provision isolated restore rehearsal
+on:
+  push:
+    branches: [ops/pilot-isolated-recovery]
+    paths: [.github/workflows/provision-isolated-recovery.yml]
+  workflow_dispatch:
+permissions: {}
+concurrency: provision-isolated-recovery
+jobs:
+  restore:
+    if: github.repository == 'CodifiedResonance/provision-source' && github.ref == 'refs/heads/ops/pilot-isolated-recovery'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: provision-recovery
+    env:
+      PGIMAGE: supabase/postgres@sha256:d5424e9f4d0c21d63991c3f3dd77881f23f722c3a212452a61bc91924b79e8c8
+    steps:
+      - name: Start isolated Postgres 17 without network or published ports
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$PGIMAGE" >/dev/null
+          docker run -d --name provision-dr --network none --user postgres --cap-drop ALL --security-opt no-new-privileges --entrypoint /bin/bash "$PGIMAGE" -ec '
+            umask 077
+            initdb -U postgres --auth-host=reject --auth-local=trust --no-locale -D /tmp/drdb >/dev/null
+            exec postgres -D /tmp/drdb -k /tmp -c listen_addresses= -c unix_socket_permissions=0700 -c shared_preload_libraries=pg_cron -c cron.launch_active_jobs=off
+          ' >/dev/null
+          for i in {1..40}; do docker exec provision-dr pg_isready -h /tmp -U postgres >/dev/null && break; sleep 1; done
+          docker exec provision-dr psql -X -h /tmp -U postgres -v ON_ERROR_STOP=1 -Atc "select version();"
+          test "$(docker inspect -f '{{.HostConfig.NetworkMode}}' provision-dr)" = none
+      - name: Capture and restore database using private staging connection
+        shell: bash
+        env:
+          SOURCE_DSN: ${{ secrets.PROVISION_STAGING_DB_URL }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ -z "$SOURCE_DSN" ]]; then echo 'Target ready; staging connection not configured. Full rehearsal did not run.'; exit 1; fi
+          python3 - <<'PY'
+          import os,urllib.parse as u
+          x=u.urlsplit(os.environ['SOURCE_DSN']);ref='qaaskvbhssonbktdjdki'
+          direct=x.hostname=='db.'+ref+'.supabase.co'
+          pool=(x.hostname or '').endswith('.pooler.supabase.com') and (x.username or '').endswith('.'+ref) and x.port in (5432,None)
+          if not ((direct or pool) and x.scheme in ('postgres','postgresql') and x.path=='/postgres' and x.password and not x.fragment and all(k=='sslmode' and v in ('require','verify-full') for k,v in u.parse_qsl(x.query))):raise SystemExit('Only the approved TLS staging session/direct connection is supported')
+          PY
+          working="$(mktemp -d)"; trap 'rm -rf -- "$working"' EXIT
+          # Both command line and logs stay private on this disposable runner. Never use shell tracing.
+          export PGSSLMODE=require
+          docker run --rm -e SOURCE_DSN -e PGSSLMODE -e 'PGOPTIONS=-c default_transaction_read_only=on' --entrypoint /bin/bash "$PGIMAGE" -ec '
+            exec pg_dump --no-password --format=custom --schema=public --schema=integrity --schema=auth --schema=storage --schema=supabase_migrations --dbname="$SOURCE_DSN"
+          ' > "$working/source.dump" 2>"$working/dump-errors" || { echo "Staging capture failed; no restore attempted"; exit 1; }
+          # Preserve app-schema roles, with no ability to log in on the recovery target.
+          docker run --rm -i -e SOURCE_DSN -e PGSSLMODE -e 'PGOPTIONS=-c default_transaction_read_only=on' --entrypoint /bin/bash "$PGIMAGE" -ec 'exec psql -XqAt --no-password -v ON_ERROR_STOP=1 "$SOURCE_DSN"' >"$working/roles.sql" 2>"$working/role-errors" <<'SQL'
+          select format('create role %I nologin %s %s;',rolname,case when rolinherit then 'inherit' else 'noinherit' end,case when rolbypassrls then 'bypassrls' else 'nobypassrls' end) from pg_roles where rolname not like 'pg\_%' and rolname<>'postgres' order by rolname;
+          select format('grant %I to %I;',a.rolname,b.rolname) from pg_auth_members m join pg_roles a on a.oid=m.roleid join pg_roles b on b.oid=m.member where a.rolname not like 'pg\_%' and b.rolname not like 'pg\_%';
+          SQL
+          docker exec -i provision-dr psql -Xq -h /tmp -U postgres -v ON_ERROR_STOP=1 < "$working/roles.sql" >"$working/apply-log" 2>&1 || { echo 'Role restoration failed'; exit 1; }
+          docker exec -i provision-dr psql -Xq -h /tmp -U postgres -v ON_ERROR_STOP=1 >"$working/extension-log" 2>&1 <<'SQL'
+          create schema if not exists extensions;
+          create extension if not exists pgcrypto with schema extensions;
+          create extension if not exists postgis with schema extensions;
+          create extension if not exists "uuid-ossp" with schema extensions;
+          create extension if not exists pg_jsonschema with schema extensions;
+          create extension if not exists pg_net with schema extensions;
+          create extension if not exists pg_cron;
+          create extension if not exists supabase_vault cascade;
+          SQL
+          docker exec -i provision-dr pg_restore --exit-on-error --single-transaction --no-publications --no-subscriptions -h /tmp -U postgres -d postgres < "$working/source.dump" >"$working/restore-log" 2>&1 || { echo 'Database restore failed; compatibility investigation required'; exit 1; }
+          docker exec -i provision-dr psql -Xq -h /tmp -U postgres -v ON_ERROR_STOP=1 >"$working/verify-log" 2>&1 <<'SQL'
+          do $$begin
+           if not exists(select 1 from supabase_migrations.schema_migrations) or not exists(select 1 from pg_policies where schemaname in ('public','storage')) or not exists(select 1 from auth.users) then raise exception 'restore incomplete';end if;
+           if exists(select 1 from auth.users u join integrity.principal p on p.id=u.id where p.closed_at is not null) then raise exception 'closed account reintroduced';end if;
+           if exists(select 1 from storage.objects o join integrity.erasure_object z on z.bucket=o.bucket_id and z.path=o.name) then raise exception 'erased object metadata reintroduced';end if;
+           if exists(select 1 from integrity.settings where dispatch_enabled or demand_summaries_enabled) then raise exception 'unexpected operating state';end if;
+          end$$;
+          SQL
+          echo 'Database restore stage passed. Full service RPO/RTO requires the separate byte, tombstone, Auth-service and projection gates.'
+      - name: Destroy temporary target
+        if: always()
+        run: docker rm -fv provision-dr >/dev/null 2>&1 || true
