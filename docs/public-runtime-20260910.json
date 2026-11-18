@@ -1,0 +1,227 @@
+{
+  "checked_at": "2026-09-10T13:25:13.773306+00:00",
+  "results": [
+    {
+      "rpc": "integrity_contract_identity_v1",
+      "status": 200,
+      "response": {
+        "data": {
+          "project_ref": "qaaskvbhssonbktdjdki",
+          "capabilities": [
+            "integrity_account_closure_queue_v1",
+            "integrity_account_closure_status_v1",
+            "integrity_activate_legacy_offer_v1",
+            "integrity_appeal_v1",
+            "integrity_begin_evidence_v1",
+            "integrity_cancel_account_closure_v1",
+            "integrity_cancel_claim_v1",
+            "integrity_cancel_demand_v1",
+            "integrity_catalogue_v1",
+            "integrity_claim_detail_v1",
+            "integrity_collect_claim_v1",
+            "integrity_contract_identity_v1",
+            "integrity_correct_physical_dates_v1",
+            "integrity_create_lot_v1",
+            "integrity_demand_areas_v1",
+            "integrity_demand_summary_v1",
+            "integrity_evidence_status_v1",
+            "integrity_finalize_evidence_v1",
+            "integrity_foods_v1",
+            "integrity_health_v1",
+            "integrity_lot_history_v1",
+            "integrity_mark_notification_v1",
+            "integrity_member_offer_v1",
+            "integrity_move_stock_v1",
+            "integrity_my_claims_v1",
+            "integrity_my_demand_v1",
+            "integrity_my_sources_v1",
+            "integrity_notifications_v1",
+            "integrity_offers_v1",
+            "integrity_operation_v1",
+            "integrity_operator_health_v1",
+            "integrity_profile_v1",
+            "integrity_public_evidence_v1",
+            "integrity_publish_evidence_v1",
+            "integrity_publish_v1",
+            "integrity_publish_v2",
+            "integrity_reconcile_stock_v1",
+            "integrity_reconfirm_v1",
+            "integrity_report_v1",
+            "integrity_request_account_closure_v1",
+            "integrity_request_business_review_v1",
+            "integrity_request_claim_v1",
+            "integrity_respond_claim_v1",
+            "integrity_review_account_closure_v1",
+            "integrity_review_detail_v1",
+            "integrity_review_queue_v1",
+            "integrity_review_v1",
+            "integrity_save_demand_v1",
+            "integrity_set_active_v1",
+            "integrity_source_cancel_claim_v1",
+            "integrity_source_claims_inbox_v1",
+            "integrity_source_claims_v1",
+            "integrity_update_demand_v1",
+            "integrity_update_profile_v1",
+            "integrity_withdraw_evidence_v1",
+            "integrity_withdraw_v1"
+          ],
+          "contract_sha256": "f527526d4598ca119f6d31ccaa17f999d135664a46025b90a7f92ca2b98bccad",
+          "document_revision": "staging-20260910.1",
+          "integration_ready": true
+        },
+        "server_time": "2026-09-10T13:24:32.043464+00:00",
+        "contract_version": "1.0.0-draft.1"
+      }
+    },
+    {
+      "rpc": "integrity_health_v1",
+      "status": 200,
+      "response": {
+        "data": {
+          "write_mode": "degraded",
+          "server_time": "2026-09-10T13:24:46.706754+00:00",
+          "capabilities": {
+            "claims": true,
+            "integrations": false,
+            "notifications": true,
+            "demand_capture": true,
+            "demand_summary": false,
+            "evidence_upload": true,
+            "public_evidence": true
+          },
+          "contract_version": "1.0.0-draft.1"
+        },
+        "server_time": "2026-09-10T13:24:46.706754+00:00",
+        "contract_version": "1.0.0-draft.1"
+      }
+    },
+    {
+      "rpc": "integrity_foods_v1",
+      "status": 200,
+      "response": {
+        "data": {
+          "items": [
+            {
+              "id": "10000000-0000-4000-8000-000000000001",
+              "name": "Synthetic potatoes",
+              "slug": "integrity-test-potatoes",
+              "units": [
+                {
+                  "unit": "item",
+                  "increment": "1"
+                },
+                {
+                  "unit": "kg",
+                  "increment": "0.001"
+                }
+              ],
+              "category": "test",
+              "default_unit": "kg"
+            },
+            {
+              "id": "16ddd6a8-35dd-4399-9187-602fef3fd9af",
+              "name": "Courgettes",
+              "slug": "courgette",
+              "units": [
+                {
+                  "unit": "each",
+                  "increment": "1"
+                }
+              ],
+              "category": "vegetable",
+              "default_unit": "each"
+            },
+            {
+              "id": "3c42f58a-5e23-463b-a94f-2eac8903c2bd",
+              "name": "Red snapper",
+              "slug": "red-snapper",
+              "units": [
+                {
+                  "unit": "each",
+                  "increment": "1"
+                }
+              ],
+              "category": "fish",
+              "default_unit": "each"
+            },
+            {
+              "id": "4c53c444-d35a-473b-9f18-48ede24498e3",
+              "name": "Potatoes",
+              "slug": "potato",
+              "units": [
+                {
+                  "unit": "kg",
+                  "increment": "0.001"
+                }
+              ],
+              "category": "vegetable",
+              "default_unit": "kg"
+            },
+            {
+              "id": "8caf4cbb-3b49-4cbc-b5f7-1459196c99cf",
+              "name": "Bread",
+              "slug": "bread",
+              "units": [
+                {
+                  "unit": "loaf",
+                  "increment": "1"
+                }
+              ],
+              "category": "bakery",
+              "default_unit": "loaf"
+            },
+            {
+              "id": "aca7c436-3fe6-44aa-8357-10bdc0216add",
+              "name": "Tomatoes",
+              "slug": "tomato",
+              "units": [
+                {
+                  "unit": "each",
+                  "increment": "1"
+                }
+              ],
+              "category": "fruiting vegetable",
+              "default_unit": "each"
+            },
+            {
+              "id": "d2f07f3d-6c36-4afb-9d0a-39c7f3bae1a9",
+              "name": "Eggs",
+              "slug": "eggs",
+              "units": [
+                {
+                  "unit": "dozen",
+                  "increment": "1"
+                }
+              ],
+              "category": "eggs",
+              "default_unit": "dozen"
+            }
+          ],
+          "next_cursor": null,
+          "next_expiry_at": null
+        },
+        "server_time": "2026-09-10T13:25:00.834053+00:00",
+        "contract_version": "1.0.0-draft.1"
+      }
+    },
+    {
+      "rpc": "integrity_demand_areas_v1",
+      "status": 200,
+      "response": {
+        "data": {
+          "items": [
+            {
+              "id": "test-area-a",
+              "label": "Synthetic coarse area A",
+              "classification": "test"
+            }
+          ],
+          "next_cursor": null,
+          "next_expiry_at": null
+        },
+        "server_time": "2026-09-10T13:25:13.622279+00:00",
+        "contract_version": "1.0.0-draft.1"
+      }
+    }
+  ]
+}
