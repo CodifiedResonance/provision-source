@@ -3,8 +3,8 @@ import {createHash} from 'node:crypto';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import standalone from 'ajv/dist/standalone/index.js';
-import {loadEnv} from 'vite';
-const key=loadEnv('production',process.cwd(),'VITE_').VITE_STAGING_PUBLISHABLE_KEY||'';
+if(fs.existsSync('.env.local'))process.loadEnvFile('.env.local');
+const key=process.env.VITE_STAGING_PUBLISHABLE_KEY||'';
 if(key.startsWith('sb_secret_'))throw Error('Privileged key rejected before build');
 if(key.startsWith('eyJ')){let token;try{token=JSON.parse(Buffer.from(key.split('.')[1],'base64url'));}catch{throw Error('Invalid staging key');}if(token.role!=='anon'||token.ref!=='qaaskvbhssonbktdjdki')throw Error('Only this staging project anon key is permitted');}
 if(key&&!key.startsWith('sb_publishable_')&&!key.startsWith('eyJ'))throw Error('Expected a staging publishable key');

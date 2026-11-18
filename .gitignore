@@ -6,3 +6,5 @@ release/
 staging/src/validators.cjs
 *.local.json
 staging/src/validators.js
+
+.preview/

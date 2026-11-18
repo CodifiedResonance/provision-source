@@ -1,3 +1,4 @@
+import {continueEvidence} from './evidence-recovery.js';
 import {publicationReview} from './publication-review.js';
 import {formPrice,firstPublicationIssue} from './publication-validation.js';
 import {publicationEditable} from './storage.js';
@@ -21,7 +22,7 @@ export async function sourceScreen(root,ctx){
   catch(e){if(ctx.guard(g))root.append(empty('Source access could not be confirmed','No private catalogue is displayed. Your saved drafts remain scoped to the original account and Source.'));return ()=>{};}
   if(!ctx.guard(g))return ()=>{};
   const p=profile.data,offers=response.items;state.sourceExpiry=response.next_expiry_at;
-  await store.put('server',user,sourceId,'catalogue',{items:offers,serverTime:response.server_time});
+  await store.put('server',user,sourceId,'catalogue',{items:offers,serverTime:response.completed_at});
   const drafts=await store.list('drafts',user,sourceId);if(!ctx.guard(g))return ()=>{};
   root.append(canManage?button(p.name,()=>profileForm(p,ctx)):el('h2',p.name),el('p',p.active?'Source active':'Source paused · your catalogue remains manageable'),el('p',`Your role: ${membership.role} · business control: ${membership.business_control}`,{class:'muted'}));
   if(canEdit)toolbar.append(button('Add a new batch',()=>edit(null,ctx),'primary'));toolbar.append(button('Export stock/history',()=>exportCatalogue(offers,p,ctx)),button('Print current stock',()=>printStock(offers,p)));
@@ -127,17 +128,11 @@ async function evidenceForm(o,ctx){
     c.append(button('Check current status',current),button('Upload or continue saved photo',async b=>{
       if(!valid())throw Error('Account or Source changed.');if(!api.health?.capabilities.evidence_upload)throw Error('Uploads are currently unavailable. Your photo is saved.');
       state.mutating++;try{
-        status.textContent='Registering saved photo…';b.textContent='Working…';
-        await ctx.command('integrity_begin_evidence_v1',{source_id:source,event_id:record.eventId,attachment_id:record.id,media_type:record.blob.type,bytes:record.blob.size,checksum_sha256:record.checksum,caption:record.caption,declared_observed_at:record.observedAt},source,{operationId:record.beginId});
-        let d=await current();if(['failed','withdrawn','quarantined'].includes(d.status))throw Error(`Photo is ${d.status}. No automatic replacement was made.`);
-        if(d.status==='pending'){
-          status.textContent='Uploading photo · keep this page open…';if(!valid())throw Error('Account changed.');
+        b.textContent='Working…';
+        await continueEvidence({record,source,api,command:ctx.command,current,valid,report:text=>{status.textContent=text;},upload:async()=>{
           const r=await fetch(`${CONFIG.url}/functions/v1/integrity-evidence/upload/${record.id}`,{method:'POST',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(95000),headers:{apikey:CONFIG.publishableKey,Authorization:'Bearer '+state.session.access_token,'x-source-id':source,'Content-Type':record.blob.type},body:record.blob});
-          if(!r.ok)throw Error('Upload was not confirmed. Your saved photo is retained; check status or continue to retry the same attachment.');d=await current();
-        }
-        if(d.status!=='linked'){status.textContent='Finalising and sanitising photo…';await ctx.command('integrity_finalize_evidence_v1',{source_id:source,attachment_id:record.id},source,{operationId:record.finalizeId});d=await current();}
-        if(d.status!=='linked')throw Error(`Server reports ${d.status}. Keep this saved photo and check again.`);
-        status.textContent=`Photo linked · ${d.public?'publicly shared':'private'}. Preview the sanitised photo before sharing.`;
+          if(!r.ok)throw Error('Upload was not confirmed. Your saved photo is retained; check status or continue to retry the same attachment.');
+        }});
       }catch(e){status.textContent='Photo not completed. Your saved file and attachment identity are retained.';throw e;}finally{state.mutating--;b.textContent='Upload or continue saved photo';}
     }),button('Preview & manage sharing',async()=>{
       const d=await current();if(d.status!=='linked')throw Error(`Photo is ${d.status}; a linked photo is required for preview.`);
